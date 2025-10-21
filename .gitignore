@@ -1,0 +1,233 @@
+# Azure WAF Scanner - .gitignore
+
+# PowerShell
+*.ps1xml
+*.psc1
+
+# Output directories
+waf-output/
+waf-archive/
+*.log
+
+# Cache files
+.cache/
+*/.cache/
+
+# Reports (optional - uncomment if you don't want to track reports)
+# *.json
+# *.csv
+# *.html
+# *.docx
+
+# Baseline files (optional - you may want to track these)
+# baseline*.json
+
+# Configuration files with secrets (DO track config.json template)
+config.local.json
+*.secrets.json
+
+# Azure credentials and tokens
+.azure/
+*.publishsettings
+*.azureProfile
+
+# Subscription-specific files
+subscriptions.txt
+subscription-list.json
+
+# Personal notes
+NOTES.md
+TODO.personal.md
+
+# IDE and Editor files
+.vscode/
+.vs/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Visual Studio
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+
+# Node modules (if using any JavaScript tooling)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Python (if using Python helper scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+~$*
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+*.lnk
+
+# Test results
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# Pester test results
+testResults.xml
+coverage.xml
+
+# Package files
+*.nupkg
+*.snupkg
+packages/
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+
+# Documentation builds
+_site/
+.sass-cache/
+.jekyll-cache/
+.jekyll-metadata
+
+# Terraform (if using for deployment)
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Sensitive data
+secrets/
+credentials/
+*.pem
+*.key
+*.pfx
+*.p12
+*.asc
+*.gpg
+
+# Large files that shouldn't be in repo
+*.zip
+*.tar.gz
+*.rar
+*.7z
+*.iso
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Custom exclusions
+custom-checks/
+experimental/
+scratch/
+
+# Documentation drafts
+docs/drafts/
+*.draft.md
+
+# Archive folders
+archive/
+old/
+deprecated/
+
+# Local testing
+test-output/
+local-test/
+
+# Performance profiling
+*.prof
+*.pprof
+
+# Azure DevOps
+.taskkey
+
+# Generated documentation
+api-docs/
+generated-docs/
+
+# Snapshot files (optional - you may want to track these)
+# *.snap
+
+# Lock files (if using package managers)
+package-lock.json
+yarn.lock
+Gemfile.lock
+
+# Logs and diagnostics
+logs/
+*.log.*
+diagnostic-*.txt
+
+# Azure functions (if extending to Azure Functions)
+local.settings.json
+.azurefunctions/
+
+# Git merge files
+*.orig
+
+# Temporary PowerShell transcripts
+PowerShell_transcript.*.txt
+
+# Module cache
+PSGetModuleInfo.xml
+
+# Azure ARM template parameters with secrets
+*.parameters.local.json
+azuredeploy.parameters.local.json
+```
