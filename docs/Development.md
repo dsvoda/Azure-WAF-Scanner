@@ -19,9 +19,9 @@ Azure-WAF-Scanner/
 │   │   └── New-WafDocx.ps1           # Word document export
 │   └── Pillars/
 │       ├── Reliability/
-│       │   ├── REL-001/
+│       │   ├── RE01/
 │       │   │   └── Invoke.ps1        # Individual check
-│       │   ├── REL-002/
+│       │   ├── RE02/
 │       │   │   └── Invoke.ps1
 │       │   └── ...
 │       ├── Security/
@@ -52,7 +52,7 @@ Azure-WAF-Scanner/
 
 Every check must call `Register-WafCheck` to register itself:
 ```powershell
-Register-WafCheck -CheckId 'REL-001' `
+Register-WafCheck -CheckId 'RE01' `
     -Pillar 'Reliability' `
     -Title 'VMs should use availability zones' `
     -Description 'Detailed description' `
@@ -78,11 +78,11 @@ The ScriptBlock receives a `$SubscriptionId` parameter and must return one or mo
     
     # Evaluate condition
     if ($condition) {
-        return New-WafResult -CheckId 'REL-001' `
+        return New-WafResult -CheckId 'RE01' `
             -Status 'Pass' `
             -Message 'All resources compliant'
     } else {
-        return New-WafResult -CheckId 'REL-001' `
+        return New-WafResult -CheckId 'RE01' `
             -Status 'Fail' `
             -Message 'Issues found' `
             -AffectedResources $affectedIds `
@@ -109,18 +109,18 @@ New-WafResult Parameters:
 ### Step 1: Scaffold the Check
 ```powershell
 pwsh ./helpers/New-WafItem.ps1 `
-    -CheckId 'REL-050' `
+    -CheckId 'RE05' `
     -Pillar 'Reliability' `
     -Title 'My New Check'
 ```
 
-This creates: `modules/Pillars/Reliability/REL-050/Invoke.ps1`
+This creates: `modules/Pillars/Reliability/RE05/Invoke.ps1`
 
 ### Step 2: Implement the Check Logic
 ```powershell
-# modules/Pillars/Reliability/REL-050/Invoke.ps1
+# modules/Pillars/Reliability/RE05/Invoke.ps1
 
-Register-WafCheck -CheckId 'REL-050' `
+Register-WafCheck -CheckId 'RE05' `
     -Pillar 'Reliability' `
     -Title 'Application Gateways should use WAF SKU' `
     -Description 'Ensures Application Gateways use WAF-enabled SKUs' `
@@ -146,7 +146,7 @@ Resources
             
             # 2. Handle no resources
             if (!$gateways -or $gateways.Count -eq 0) {
-                return New-WafResult -CheckId 'REL-050' `
+                return New-WafResult -CheckId 'RE50' `
                     -Status 'N/A' `
                     -Message 'No Application Gateways found'
             }
@@ -155,7 +155,7 @@ Resources
             $nonCompliant = $gateways | Where-Object { !$_.wafEnabled }
             
             if ($nonCompliant.Count -eq 0) {
-                return New-WafResult -CheckId 'REL-050' `
+                return New-WafResult -CheckId 'RE50' `
                     -Status 'Pass' `
                     -Message "All $($gateways.Count) Application Gateways use WAF SKU"
             }
@@ -183,7 +183,7 @@ Upgrade Application Gateways to WAF-enabled SKUs:
 Set-AzApplicationGateway -ApplicationGateway `$appGw
 "@
             
-            return New-WafResult -CheckId 'REL-050' `
+            return New-WafResult -CheckId 'RE50' `
                 -Status 'Fail' `
                 -Message "$($nonCompliant.Count) of $($gateways.Count) Application Gateways do not use WAF SKU" `
                 -AffectedResources $affectedIds `
@@ -196,7 +196,7 @@ Set-AzApplicationGateway -ApplicationGateway `$appGw
                 }
                 
         } catch {
-            return New-WafResult -CheckId 'REL-050' `
+            return New-WafResult -CheckId 'RE50' `
                 -Status 'Error' `
                 -Message "Check failed: $_"
         }
@@ -206,10 +206,10 @@ Set-AzApplicationGateway -ApplicationGateway `$appGw
 ### Step 3: Test Your Check
 ```powershell
 # Test the specific check
-pwsh ./run/Invoke-WafLocal.ps1 -ExcludedChecks @('*') -IncludedChecks @('REL-050') -EmitJson
+pwsh ./run/Invoke-WafLocal.ps1 -ExcludedChecks @('*') -IncludedChecks @('RE50') -EmitJson
 
 # Review results
-Get-Content ./waf-output/latest.json | ConvertFrom-Json | Where-Object CheckId -eq 'REL-050'
+Get-Content ./waf-output/latest.json | ConvertFrom-Json | Where-Object CheckId -eq 'RE50'
 ```
 
 ## Best Practices
@@ -269,10 +269,10 @@ foreach ($vm in $vms) {
         
     } catch {
         # Log error details
-        Write-Error "Check REL-050 failed: $_"
+        Write-Error "Check RE50 failed: $_"
         
         # Return error result (not throw)
-        return New-WafResult -CheckId 'REL-050' `
+        return New-WafResult -CheckId 'RE50' `
             -Status 'Error' `
             -Message "Check execution failed: $($_.Exception.Message)" `
             -Metadata @{
@@ -342,9 +342,9 @@ Resources
 
 Create tests in `tests/Unit/`:
 ```powershell
-# tests/Unit/REL-050.Tests.ps1
+# tests/Unit/RE50.Tests.ps1
 
-Describe 'REL-050: Application Gateway WAF Check' {
+Describe 'RE50: Application Gateway WAF Check' {
     BeforeAll {
         # Import module
         Import-Module "$PSScriptRoot/../../modules/WafScanner.psm1" -Force
@@ -360,9 +360,9 @@ Describe 'REL-050: Application Gateway WAF Check' {
     
     It 'Should return Fail when gateways without WAF exist' {
         # Load and execute check
-        . "$PSScriptRoot/../../modules/Pillars/Reliability/REL-050/Invoke.ps1"
+        . "$PSScriptRoot/../../modules/Pillars/Reliability/RE50/Invoke.ps1"
         
-        $check = $script:CheckRegistry | Where-Object CheckId -eq 'REL-050'
+        $check = $script:CheckRegistry | Where-Object CheckId -eq 'RE50'
         $result = & $check.ScriptBlock -SubscriptionId 'test-sub'
         
         $result.Status | Should -Be 'Fail'
@@ -376,9 +376,9 @@ Describe 'REL-050: Application Gateway WAF Check' {
             )
         }
         
-        . "$PSScriptRoot/../../modules/Pillars/Reliability/REL-050/Invoke.ps1"
+        . "$PSScriptRoot/../../modules/Pillars/Reliability/RE50/Invoke.ps1"
         
-        $check = $script:CheckRegistry | Where-Object CheckId -eq 'REL-050'
+        $check = $script:CheckRegistry | Where-Object CheckId -eq 'RE50'
         $result = & $check.ScriptBlock -SubscriptionId 'test-sub'
         
         $result.Status | Should -Be 'Pass'
@@ -387,9 +387,9 @@ Describe 'REL-050: Application Gateway WAF Check' {
     It 'Should return N/A when no gateways exist' {
         Mock Invoke-AzResourceGraphQuery { return @() }
         
-        . "$PSScriptRoot/../../modules/Pillars/Reliability/REL-050/Invoke.ps1"
+        . "$PSScriptRoot/../../modules/Pillars/Reliability/RE50/Invoke.ps1"
         
-        $check = $script:CheckRegistry | Where-Object CheckId -eq 'REL-050'
+        $check = $script:CheckRegistry | Where-Object CheckId -eq 'RE50'
         $result = & $check.ScriptBlock -SubscriptionId 'test-sub'
         
         $result.Status | Should -Be 'N/A'
@@ -399,7 +399,7 @@ Describe 'REL-050: Application Gateway WAF Check' {
 
 Run tests:
 ```powershell
-Invoke-Pester -Path ./tests/Unit/REL-050.Tests.ps1
+Invoke-Pester -Path ./tests/Unit/RE50.Tests.ps1
 ```
 
 ### Integration Tests
@@ -428,11 +428,11 @@ Describe 'Full Scan Workflow' {
 Format: `<PILLAR>-<NUMBER>`
 
 Examples:
-- `REL-001` through `REL-999` - Reliability
-- `SEC-001` through `SEC-999` - Security
-- `COST-001` through `COST-999` - Cost Optimization
-- `PERF-001` through `PERF-999` - Performance
-- `OPS-001` through `OPS-999` - Operational Excellence
+- `RE01` through `RE99` - Reliability
+- `SE01` through `SE99` - Security
+- `CO01` through `CO99` - Cost Optimization
+- `PE01` through `PE99` - Performance
+- `OP01` through `OP99` - Operational Excellence
 
 ### Severity Levels
 
@@ -510,10 +510,10 @@ pwsh ./run/Invoke-WafLocal.ps1 -Verbose -EmitHtml
 Import-Module ./modules/WafScanner.psm1 -Force
 
 # Load specific check
-. ./modules/Pillars/Reliability/REL-001/Invoke.ps1
+. ./modules/Pillars/Reliability/RE01/Invoke.ps1
 
 # Execute manually
-$check = $script:CheckRegistry | Where-Object CheckId -eq 'REL-001'
+$check = $script:CheckRegistry | Where-Object CheckId -eq 'RE01'
 $result = & $check.ScriptBlock -SubscriptionId 'your-sub-id'
 
 # Inspect result
@@ -537,8 +537,8 @@ $results | Format-Table
 ```powershell
 # Time individual checks
 Measure-Command {
-    . ./modules/Pillars/Reliability/REL-001/Invoke.ps1
-    $check = $script:CheckRegistry | Where-Object CheckId -eq 'REL-001'
+    . ./modules/Pillars/Reliability/RE01/Invoke.ps1
+    $check = $script:CheckRegistry | Where-Object CheckId -eq 'RE01'
     & $check.ScriptBlock -SubscriptionId 'sub-id'
 }
 ```
