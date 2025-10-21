@@ -282,7 +282,7 @@ pwsh ./run/Invoke-WafLocal.ps1 -EmitHtml
 **Symptoms:**
 ```json
 {
-  "CheckId": "REL-001",
+  "CheckId": "RE01",
   "Status": "Error",
   "Message": "Check execution failed: ..."
 }
@@ -292,11 +292,11 @@ pwsh ./run/Invoke-WafLocal.ps1 -EmitHtml
 ```powershell
 # Test the specific check manually
 Import-Module ./modules/WafScanner.psm1 -Force
-. ./modules/Pillars/Reliability/REL-001/Invoke.ps1
+. ./modules/Pillars/Reliability/RE01/Invoke.ps1
 
 # Execute with error details
 $ErrorActionPreference = 'Continue'
-$check = $script:CheckRegistry | Where-Object CheckId -eq 'REL-001'
+$check = $script:CheckRegistry | Where-Object CheckId -eq 'RE01'
 try {
     $result = & $check.ScriptBlock -SubscriptionId 'your-sub-id'
     $result | ConvertTo-Json -Depth 5
@@ -382,21 +382,21 @@ pwsh ./run/Invoke-WafLocal.ps1 -ConfigFile "./config.json" -EmitHtml -Verbose
 ```json
 // Correct format in config.json:
 {
-  "excludedChecks": ["REL-001", "SEC-005"],  // Array of strings
+  "excludedChecks": ["RE01", "SE05"],  // Array of strings
   "excludedPillars": ["Performance"]         // Array of strings
 }
 
 // Wrong formats:
 {
-  "excludedChecks": "REL-001",               // ❌ Should be array
-  "excludedChecks": ["REL-*"],               // ❌ No wildcards supported
+  "excludedChecks": "RE01",               // ❌ Should be array
+  "excludedChecks": ["RE*"],               // ❌ No wildcards supported
   "excludedPillars": "Performance"           // ❌ Should be array
 }
 ```
 ```powershell
 # Override config via command line:
 pwsh ./run/Invoke-WafLocal.ps1 `
-    -ExcludedChecks @('REL-001', 'SEC-005') `
+    -ExcludedChecks @('RE01', 'SE05') `
     -ExcludedPillars @('Performance') `
     -EmitHtml
 ```
