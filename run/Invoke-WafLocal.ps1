@@ -219,4 +219,160 @@ try {
     try {
         $context = Get-AzContext -ErrorAction Stop
     } catch {
-        Write-ScanLog "Not connected to Azure
+        Write-ScanLog "Not connected to Azure. Connecting..." -Level Warning
+        Connect-AzAccount | Out-Null
+        $context = Get-AzContext
+    }
+    
+    if (!$context) {
+        throw "Failed to establish Azure connection"
+    }
+    
+    Write-ScanLog "Connected as: $($context.Account.Id)" -Level Success
+    
+    # Determine subscriptions to scan
+    if (!$Subscriptions) {
+        $Subscriptions = @($context.Subscription.Id)
+        Write-ScanLog "Using current subscription: $($context.Subscription.Name)" -Level Info
+    } else {
+        Write-ScanLog "Target subscriptions: $($Subscriptions.Count)" -Level Info
+    }
+    
+    # Scan subscriptions
+    $allResults = @()
+    
+    if ($Parallel -and $Subscriptions.Count -gt 1) {
+        Write-ScanLog "Running parallel scans (parallelism: $MaxParallelism)" -Level Info
+        
+        $allResults = $Subscriptions | ForEach-Object -Parallel {
+            $sub = $_
+            $modulePath = $using:modulePath
+            $excludePillars = $using:config.excludedPillars
+            $excludeChecks = $using:config.excludedChecks
+            
+            # Import module in parallel runspace
+            Import-Module $modulePath -Force -Verbose:$false
+            
+            # Run scan
+            Invoke-WafSubscriptionScan -SubscriptionId $sub -ExcludePillars $excludePillars -ExcludeCheckIds $excludeChecks
+            
+        } -ThrottleLimit $MaxParallelism
+        
+    } else {
+        foreach ($sub in $Subscriptions) {
+            $results = Invoke-WafSubscriptionScan -SubscriptionId $sub `
+                -ExcludePillars $config.excludedPillars `
+                -ExcludeCheckIds $config.excludedChecks
+            
+            if ($results) {
+                $allResults += $results
+            }
+        }
+    }
+    
+    # Generate summary
+    Write-Host ""
+    Write-ScanLog "Generating summary..." -Level Info
+    
+    $summary = Get-WafScanSummary -Results $allResults -StartTime $script:StartTime
+    
+    # Compare with baseline if provided
+    $comparison = $null
+    if ($BaselineFile) {
+        Write-ScanLog "Comparing with baseline..." -Level Info
+        $comparison = Compare-WafBaseline -CurrentResults $allResults -BaselinePath $BaselineFile
+    }
+    
+    # Export results
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $primarySubId = $Subscriptions[0] -replace '/.*  # Clean subscription ID
+    
+    Export-WafResults -Results $allResults -Summary $summary -OutputPath $OutputPath `
+        -SubscriptionId $primarySubId -Timestamp $timestamp
+    
+    # Display summary
+    Write-Host ""
+    Write-Host "╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║                       SCAN SUMMARY                            ║" -ForegroundColor Cyan
+    Write-Host "╚═══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Total Checks:      " -NoNewline
+    Write-Host $summary.TotalChecks -ForegroundColor White
+    
+    Write-Host "  Passed:            " -NoNewline
+    Write-Host $summary.Passed -ForegroundColor Green
+    
+    Write-Host "  Failed:            " -NoNewline
+    Write-Host $summary.Failed -ForegroundColor Red
+    
+    Write-Host "  Warnings:          " -NoNewline
+    Write-Host $summary.Warnings -ForegroundColor Yellow
+    
+    Write-Host "  N/A:               " -NoNewline
+    Write-Host $summary.NotApplicable -ForegroundColor Gray
+    
+    Write-Host "  Errors:            " -NoNewline
+    Write-Host $summary.Errors -ForegroundColor Red
+    
+    Write-Host ""
+    Write-Host "  Compliance Score:  " -NoNewline
+    $scoreColor = if ($summary.ComplianceScore -ge 80) { 'Green' } 
+                  elseif ($summary.ComplianceScore -ge 60) { 'Yellow' } 
+                  else { 'Red' }
+    Write-Host "$($summary.ComplianceScore)%" -ForegroundColor $scoreColor
+    
+    Write-Host "  Duration:          " -NoNewline
+    Write-Host $summary.Duration -ForegroundColor White
+    Write-Host ""
+    
+    # Show by pillar
+    Write-Host "  By Pillar:" -ForegroundColor Cyan
+    foreach ($pillar in $summary.ByPillar) {
+        $pillarName = $pillar.Pillar.PadRight(25)
+        $score = "$($pillar.ComplianceScore)%".PadLeft(6)
+        $details = "($($pillar.Passed)/$($pillar.Total) passed)"
+        
+        $pillarColor = if ($pillar.ComplianceScore -ge 80) { 'Green' }
+                       elseif ($pillar.ComplianceScore -ge 60) { 'Yellow' }
+                       else { 'Red' }
+        
+        Write-Host "    $pillarName" -NoNewline
+        Write-Host $score -NoNewline -ForegroundColor $pillarColor
+        Write-Host "  $details" -ForegroundColor Gray
+    }
+    
+    # Show critical failures
+    Write-Host ""
+    $criticalFailures = $allResults | Where-Object { $_.Status -eq 'Fail' -and $_.Severity -eq 'Critical' }
+    
+    if ($criticalFailures.Count -gt 0) {
+        Write-Host "  ⚠️  CRITICAL ISSUES: $($criticalFailures.Count)" -ForegroundColor Red
+        Write-Host ""
+        foreach ($failure in $criticalFailures | Select-Object -First 5) {
+            Write-Host "    • " -NoNewline -ForegroundColor Red
+            Write-Host "$($failure.CheckId): " -NoNewline -ForegroundColor Yellow
+            Write-Host $failure.Title -ForegroundColor White
+        }
+        if ($criticalFailures.Count -gt 5) {
+            Write-Host "    ... and $($criticalFailures.Count - 5) more" -ForegroundColor Gray
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║                    SCAN COMPLETED                             ║" -ForegroundColor Cyan
+    Write-Host "╚═══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host ""
+    
+    Write-ScanLog "Scan completed successfully!" -Level Success
+    
+} catch {
+    Write-Host ""
+    Write-ScanLog "FATAL ERROR: $_" -Level Error
+    Write-ScanLog $_.ScriptStackTrace -Level Error
+    throw
+} finally {
+    Write-Progress -Activity "Scanning" -Completed
+}
+
+#endregion
