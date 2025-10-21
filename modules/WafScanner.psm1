@@ -18,7 +18,7 @@ function Register-WafCheck {
         Registers a WAF check to the scanner registry.
     
     .PARAMETER CheckId
-        Unique identifier for the check (e.g., "REL-001").
+        Unique identifier for the check (e.g., "RE01").
     
     .PARAMETER Pillar
         WAF pillar (Reliability, Security, Cost, Performance, OperationalExcellence).
