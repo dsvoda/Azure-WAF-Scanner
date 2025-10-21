@@ -1,5 +1,5 @@
 
-Register-WafCheck -Pillar 'Reliability' -Id 'RE:05' -Name 'Redundancy' -Description 'Redundancy for compute/network across AZ/sets' -InvokeScript {
+Register-WafCheck -Pillar 'Reliability' -Id 'RE05' -Name 'Redundancy' -Description 'Redundancy for compute/network across AZ/sets' -InvokeScript {
   param([string]$SubscriptionId)
   $redundancyKql = @"
 resources
@@ -10,7 +10,7 @@ resources
 "@
   $r = Invoke-Arg -Kql $redundancyKql -Subscriptions $SubscriptionId
   $status = ($r[0].nonRedundant -gt 0) ? 'Fail' : 'Pass'
-  New-WafResult -Pillar 'Reliability' -Id 'RE:05' -Name 'Redundancy' -Description 'VMs in AZ/AvSet' `
+  New-WafResult -Pillar 'Reliability' -Id 'RE05' -Name 'Redundancy' -Description 'VMs in AZ/AvSet' `
     -SubscriptionId $SubscriptionId -TestMethod 'ARG KQL' -Status $status -Score (Convert-StatusToScore $status) `
     -Evidence ($r | ConvertTo-Json -Depth 5) -Recommendation 'Place singletons into AZs/Availability Sets; prefer VMSS' -EstimatedROI $null
 }
