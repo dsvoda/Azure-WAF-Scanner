@@ -24,13 +24,13 @@
     Overwrite existing check if it exists.
 
 .EXAMPLE
-    .\New-WafItem.ps1 -CheckId 'REL-050' -Pillar 'Reliability' -Title 'App Gateways should use WAF'
+    .\New-WafItem.ps1 -CheckId 'RE05' -Pillar 'Reliability' -Title 'App Gateways should use WAF'
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidatePattern('^(REL|SEC|COST|PERF|OPS)-\d{3}$')]
+    [ValidatePattern('^(RE|SE|CO|PE|OE)\d{2}$')]
     [string]$CheckId,
     
     [Parameter(Mandatory)]
