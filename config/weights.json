@@ -1,0 +1,11 @@
+{
+  "Reliability": 1.0,
+  "Security": 1.0,
+  "Cost Optimization": 1.0,
+  "Operational Excellence": 1.0,
+  "Performance Efficiency": 1.0,
+  "Controls": {
+    "SE:07": 1.2,
+    "RE:05": 1.2
+  }
+}
