@@ -90,7 +90,7 @@ Create a `config.json` file to customize the scanner behavior:
 ```json
 {
   "excludedPillars": [],
-  "excludedChecks": ["COST-005", "SEC-012"],
+  "excludedChecks": ["CO05", "SE12"],
   "customThresholds": {
     "costManagement": {
       "monthlyBudgetWarningPercent": 80,
@@ -153,7 +153,7 @@ Place custom checks in `modules/Pillars/<Pillar>/<CheckID>/Invoke.ps1`:
 ```powershell
 # Example: modules/Pillars/Security/SEC-099/Invoke.ps1
 
-Register-WafCheck -CheckId 'SEC-099' `
+Register-WafCheck -CheckId 'SE99' `
     -Pillar 'Security' `
     -Title 'Custom Security Check' `
     -Description 'Description of what this checks' `
@@ -169,11 +169,11 @@ Register-WafCheck -CheckId 'SEC-099' `
         
         # Return result
         if ($resources.Count -eq 0) {
-            return New-WafResult -CheckId 'SEC-099' `
+            return New-WafResult -CheckId 'SE99' `
                 -Status 'Pass' `
                 -Message 'No issues found'
         } else {
-            return New-WafResult -CheckId 'SEC-099' `
+            return New-WafResult -CheckId 'SE99' `
                 -Status 'Fail' `
                 -Message 'Found issues' `
                 -AffectedResources @($resources.id) `
@@ -187,7 +187,7 @@ Register-WafCheck -CheckId 'SEC-099' `
 
 Use the helper script to create check templates:
 ```powershell
-pwsh ./helpers/New-WafItem.ps1 -CheckId 'REL-050' -Pillar 'Reliability' -Title 'New Check'
+pwsh ./helpers/New-WafItem.ps1 -CheckId 'RE05' -Pillar 'Reliability' -Title 'New Check'
 ```
 
 ## 🎨 HTML Report Features
