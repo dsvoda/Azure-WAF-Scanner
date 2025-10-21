@@ -4,7 +4,7 @@
 ## Add a new control
 ```powershell
 # Examples:
-pwsh ./helpers/New-WafItem.ps1 -PillarFolder Security -ControlId 'SE:07' -ControlName 'Encrypt data' -Description 'Encryption at rest/in transit'
+pwsh ./helpers/New-WafItem.ps1 -PillarFolder Security -ControlId 'SE07' -ControlName 'Encrypt data' -Description 'Encryption at rest/in transit'
 ```
 
 Then edit the generated `Invoke.ps1` and implement logic using Az cmdlets/Resource Graph/Advisor/Policy/Defender.
