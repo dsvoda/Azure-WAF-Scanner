@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    Generates an enhanced interactive HTML report for WAF scan results.
+    Generates enhanced interactive HTML reports for WAF scan results.
 
 .DESCRIPTION
-    Creates a modern, interactive HTML report with filtering, sorting,
+    Creates modern, interactive HTML reports with filtering, sorting,
     charts, executive summary, and remediation recommendations.
 #>
 
@@ -19,39 +19,30 @@ function New-EnhancedWafHtml {
         [hashtable]$Comparison,
         
         [Parameter(Mandatory)]
-        [string]$OutputPath,
-        
-        [string]$TemplatePath = "./report-assets/templates/enhanced.html",
-        [string]$StylesPath = "./report-assets/styles/enhanced.css"
+        [string]$OutputPath
     )
     
     Write-Verbose "Generating enhanced HTML report..."
     
-    # Prepare data for charts
-    $pillarData = $Results | Group-Object Pillar | ForEach-Object {
-        $total = $_.Count
-        $passed = ($_.Group | Where-Object Status -eq 'Pass').Count
-        $failed = ($_.Group | Where-Object Status -eq 'Fail').Count
-        $warnings = ($_.Group | Where-Object Status -eq 'Warning').Count
-        
+    # Prepare chart data
+    $pillarData = $Summary.ByPillar | ForEach-Object {
         @{
-            pillar = $_.Name
-            total = $total
-            passed = $passed
-            failed = $failed
-            warnings = $warnings
-            score = if ($total -gt 0) { [Math]::Round(($passed / $total) * 100, 1) } else { 0 }
+            pillar = $_.Pillar
+            total = $_.Total
+            passed = $_.Passed
+            failed = $_.Failed
+            score = $_.ComplianceScore
         }
     }
     
-    $severityData = $Results | Where-Object Status -eq 'Fail' | Group-Object Severity | ForEach-Object {
+    $severityData = $Summary.BySeverity | ForEach-Object {
         @{
-            severity = $_.Name
+            severity = $_.Severity
             count = $_.Count
         }
     }
     
-    # Priority recommendations (top 10 failures by severity)
+    # Priority recommendations (top 10 critical/high failures)
     $priorityItems = $Results | 
         Where-Object Status -eq 'Fail' | 
         Sort-Object @{Expression={
@@ -65,12 +56,12 @@ function New-EnhancedWafHtml {
         }} | 
         Select-Object -First 10
     
-    # Quick wins (easy fixes)
+    # Quick wins (low effort fixes)
     $quickWins = $Results | 
         Where-Object { $_.Status -eq 'Fail' -and $_.RemediationEffort -eq 'Low' } |
         Select-Object -First 5
     
-    # Generate HTML
+    # Build HTML
     $html = @"
 <!DOCTYPE html>
 <html lang="en">
@@ -78,8 +69,7 @@ function New-EnhancedWafHtml {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Azure WAF Assessment Report</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -301,6 +291,7 @@ function New-EnhancedWafHtml {
         .status-fail { background: #f8d7da; color: #721c24; }
         .status-warning { background: #fff3cd; color: #856404; }
         .status-na { background: #e2e3e5; color: #383d41; }
+        .status-error { background: #f8d7da; color: #721c24; }
         
         .severity-badge {
             display: inline-block;
@@ -327,6 +318,15 @@ function New-EnhancedWafHtml {
         .details-content {
             padding: 20px;
             border-left: 4px solid #0078d4;
+        }
+        
+        .details-content pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 0.9em;
         }
         
         .recommendation {
@@ -391,7 +391,7 @@ function New-EnhancedWafHtml {
 <body>
     <div class="container">
         <div class="header">
-            <h1><i class="fas fa-cloud"></i> Azure Well-Architected Framework Assessment</h1>
+            <h1>🔍 Azure Well-Architected Framework Assessment</h1>
             <p>Generated on $($Summary.Timestamp.ToString('MMMM dd, yyyy HH:mm:ss'))</p>
             <p>Duration: $($Summary.Duration)</p>
         </div>
@@ -401,37 +401,37 @@ function New-EnhancedWafHtml {
             
             <div class="summary-cards">
                 <div class="card score">
-                    <div class="card-icon"><i class="fas fa-chart-line"></i></div>
+                    <div class="card-icon">📊</div>
                     <div class="card-value">$($Summary.ComplianceScore)%</div>
                     <div class="card-label">Compliance Score</div>
                 </div>
                 
                 <div class="card passed">
-                    <div class="card-icon"><i class="fas fa-check-circle"></i></div>
+                    <div class="card-icon">✅</div>
                     <div class="card-value">$($Summary.Passed)</div>
                     <div class="card-label">Passed</div>
                 </div>
                 
                 <div class="card failed">
-                    <div class="card-icon"><i class="fas fa-times-circle"></i></div>
+                    <div class="card-icon">❌</div>
                     <div class="card-value">$($Summary.Failed)</div>
                     <div class="card-label">Failed</div>
                 </div>
                 
                 <div class="card warnings">
-                    <div class="card-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                    <div class="card-icon">⚠️</div>
                     <div class="card-value">$($Summary.Warnings)</div>
                     <div class="card-label">Warnings</div>
                 </div>
             </div>
 "@
 
-    # Add comparison section if baseline provided
+    # Add comparison section if provided
     if ($Comparison) {
         $html += @"
             
             <div class="comparison-section" style="margin-top: 30px;">
-                <h3><i class="fas fa-balance-scale"></i> Baseline Comparison</h3>
+                <h3>📈 Baseline Comparison</h3>
                 <div class="comparison-stats">
                     <div class="comparison-stat">
                         <div style="font-size: 2em; color: #dc3545; font-weight: bold;">$($Comparison.NewFailures.Count)</div>
@@ -455,7 +455,7 @@ function New-EnhancedWafHtml {
         
         <div class="content">
             <div class="section">
-                <h2 class="section-title"><i class="fas fa-chart-bar"></i> Visual Analytics</h2>
+                <h2 class="section-title">📊 Visual Analytics</h2>
                 
                 <div class="charts-container">
                     <div class="chart-card">
@@ -480,18 +480,25 @@ function New-EnhancedWafHtml {
     if ($priorityItems.Count -gt 0) {
         $html += @"
             <div class="section">
-                <h2 class="section-title"><i class="fas fa-exclamation-circle"></i> Priority Recommendations</h2>
+                <h2 class="section-title">🚨 Priority Recommendations</h2>
                 <p style="margin-bottom: 20px;">Top $($priorityItems.Count) critical issues requiring immediate attention.</p>
 "@
         
         foreach ($item in $priorityItems) {
+            $affectedResourcesHtml = if ($item.AffectedResources -and $item.AffectedResources.Count -gt 0) {
+                "<p><strong>Affected Resources ($($item.AffectedResources.Count)):</strong> " + 
+                (($item.AffectedResources | Select-Object -First 3) -join ', ') +
+                $(if ($item.AffectedResources.Count -gt 3) { "..." } else { "" }) +
+                "</p>"
+            } else { "" }
+            
             $html += @"
                 <div class="recommendation">
-                    <h4><i class="fas fa-flag"></i> $($item.CheckId) - $($item.Title)</h4>
+                    <h4>🚩 $($item.CheckId) - $($item.Title)</h4>
                     <p><strong>Pillar:</strong> $($item.Pillar) | <strong>Severity:</strong> <span class="severity-badge severity-$($item.Severity.ToLower())">$($item.Severity)</span></p>
-                    <p><strong>Issue:</strong> $($item.Message)</p>
-                    <p><strong>Recommendation:</strong> $($item.Recommendation)</p>
-                    $(if ($item.AffectedResources) { "<p><strong>Affected Resources:</strong> $($item.AffectedResources -join ', ')</p>" })
+                    <p><strong>Issue:</strong> $([System.Web.HttpUtility]::HtmlEncode($item.Message))</p>
+                    <p><strong>Recommendation:</strong> $([System.Web.HttpUtility]::HtmlEncode($item.Recommendation))</p>
+                    $affectedResourcesHtml
                 </div>
 "@
         }
@@ -503,17 +510,17 @@ function New-EnhancedWafHtml {
     if ($quickWins.Count -gt 0) {
         $html += @"
             <div class="section">
-                <h2 class="section-title"><i class="fas fa-bolt"></i> Quick Wins</h2>
+                <h2 class="section-title">⚡ Quick Wins</h2>
                 <p style="margin-bottom: 20px;">Easy fixes that can be implemented quickly for immediate improvement.</p>
 "@
         
         foreach ($item in $quickWins) {
             $html += @"
                 <div class="recommendation quick-win">
-                    <h4><i class="fas fa-rocket"></i> $($item.CheckId) - $($item.Title)</h4>
+                    <h4>🚀 $($item.CheckId) - $($item.Title)</h4>
                     <p><strong>Pillar:</strong> $($item.Pillar) | <strong>Effort:</strong> Low</p>
-                    <p><strong>Issue:</strong> $($item.Message)</p>
-                    <p><strong>Quick Fix:</strong> $($item.Recommendation)</p>
+                    <p><strong>Issue:</strong> $([System.Web.HttpUtility]::HtmlEncode($item.Message))</p>
+                    <p><strong>Quick Fix:</strong> $([System.Web.HttpUtility]::HtmlEncode($item.Recommendation))</p>
                 </div>
 "@
         }
@@ -521,17 +528,21 @@ function New-EnhancedWafHtml {
         $html += "</div>"
     }
 
-    # Detailed Results
+    # Detailed Results Table
+    $pillars = $Results | Select-Object -ExpandProperty Pillar -Unique | Sort-Object
+    $statuses = @('Pass', 'Fail', 'Warning', 'N/A', 'Error')
+    $severities = @('Critical', 'High', 'Medium', 'Low')
+    
     $html += @"
             <div class="section">
-                <h2 class="section-title"><i class="fas fa-list-alt"></i> Detailed Results</h2>
+                <h2 class="section-title">📋 Detailed Results</h2>
                 
                 <div class="filters">
                     <div class="filter-group">
                         <label for="filterPillar">Pillar:</label>
                         <select id="filterPillar" onchange="filterResults()">
                             <option value="">All</option>
-                            $(($Results | Select-Object -ExpandProperty Pillar -Unique | Sort-Object | ForEach-Object { "<option value='$_'>$_</option>" }) -join "`n")
+                            $(($pillars | ForEach-Object { "<option value='$_'>$_</option>" }) -join "`n")
                         </select>
                     </div>
                     
@@ -539,10 +550,7 @@ function New-EnhancedWafHtml {
                         <label for="filterStatus">Status:</label>
                         <select id="filterStatus" onchange="filterResults()">
                             <option value="">All</option>
-                            <option value="Fail">Failed</option>
-                            <option value="Pass">Passed</option>
-                            <option value="Warning">Warning</option>
-                            <option value="N/A">N/A</option>
+                            $(($statuses | ForEach-Object { "<option value='$_'>$_</option>" }) -join "`n")
                         </select>
                     </div>
                     
@@ -550,10 +558,7 @@ function New-EnhancedWafHtml {
                         <label for="filterSeverity">Severity:</label>
                         <select id="filterSeverity" onchange="filterResults()">
                             <option value="">All</option>
-                            <option value="Critical">Critical</option>
-                            <option value="High">High</option>
-                            <option value="Medium">Medium</option>
-                            <option value="Low">Low</option>
+                            $(($severities | ForEach-Object { "<option value='$_'>$_</option>" }) -join "`n")
                         </select>
                     </div>
                     
@@ -563,22 +568,22 @@ function New-EnhancedWafHtml {
                     </div>
                     
                     <button class="btn btn-primary" onclick="resetFilters()">
-                        <i class="fas fa-redo"></i> Reset Filters
+                        🔄 Reset Filters
                     </button>
                     
                     <button class="btn btn-primary" onclick="exportToCSV()">
-                        <i class="fas fa-download"></i> Export CSV
+                        💾 Export CSV
                     </button>
                 </div>
                 
                 <table class="results-table" id="resultsTable">
                     <thead>
                         <tr>
-                            <th onclick="sortTable(0)">Check ID <i class="fas fa-sort"></i></th>
-                            <th onclick="sortTable(1)">Pillar <i class="fas fa-sort"></i></th>
-                            <th onclick="sortTable(2)">Status <i class="fas fa-sort"></i></th>
-                            <th onclick="sortTable(3)">Severity <i class="fas fa-sort"></i></th>
-                            <th onclick="sortTable(4)">Title <i class="fas fa-sort"></i></th>
+                            <th onclick="sortTable(0)">Check ID ⇅</th>
+                            <th onclick="sortTable(1)">Pillar ⇅</th>
+                            <th onclick="sortTable(2)">Status ⇅</th>
+                            <th onclick="sortTable(3)">Severity ⇅</th>
+                            <th onclick="sortTable(4)">Title ⇅</th>
                             <th>Details</th>
                         </tr>
                     </thead>
@@ -591,10 +596,15 @@ function New-EnhancedWafHtml {
             'Pass' { 'status-pass' }
             'Fail' { 'status-fail' }
             'Warning' { 'status-warning' }
-            default { 'status-na' }
+            'N/A' { 'status-na' }
+            'Error' { 'status-error' }
         }
         
         $severityClass = "severity-$($result.Severity.ToLower())"
+        
+        $encodedMessage = [System.Web.HttpUtility]::HtmlEncode($result.Message)
+        $encodedRecommendation = [System.Web.HttpUtility]::HtmlEncode($result.Recommendation)
+        $encodedScript = [System.Web.HttpUtility]::HtmlEncode($result.RemediationScript)
         
         $html += @"
                         <tr class="expandable" onclick="toggleDetails(this)" 
@@ -606,17 +616,36 @@ function New-EnhancedWafHtml {
                             <td><span class="status-badge $statusClass">$($result.Status)</span></td>
                             <td><span class="severity-badge $severityClass">$($result.Severity)</span></td>
                             <td>$($result.Title)</td>
-                            <td><i class="fas fa-chevron-down"></i></td>
+                            <td>▼</td>
                         </tr>
                         <tr class="details-row">
                             <td colspan="6">
                                 <div class="details-content">
                                     <p><strong>Description:</strong> $($result.Description)</p>
-                                    <p><strong>Message:</strong> $($result.Message)</p>
-                                    $(if ($result.Recommendation) { "<p><strong>Recommendation:</strong> $($result.Recommendation)</p>" })
-                                    $(if ($result.DocumentationUrl) { "<p><strong>Learn More:</strong> <a href='$($result.DocumentationUrl)' target='_blank'>$($result.DocumentationUrl)</a></p>" })
-                                    $(if ($result.AffectedResources) { "<p><strong>Affected Resources:</strong> $($result.AffectedResources -join ', ')</p>" })
-                                    $(if ($result.RemediationScript) { "<p><strong>Remediation Script:</strong><pre>$($result.RemediationScript)</pre></p>" })
+                                    <p><strong>Message:</strong> $encodedMessage</p>
+"@
+        
+        if ($result.Recommendation) {
+            $html += "<p><strong>Recommendation:</strong> $encodedRecommendation</p>"
+        }
+        
+        if ($result.DocumentationUrl) {
+            $html += "<p><strong>Learn More:</strong> <a href='$($result.DocumentationUrl)' target='_blank'>$($result.DocumentationUrl)</a></p>"
+        }
+        
+        if ($result.AffectedResources -and $result.AffectedResources.Count -gt 0) {
+            $resourceList = ($result.AffectedResources | Select-Object -First 10) -join '<br>'
+            $moreCount = if ($result.AffectedResources.Count -gt 10) { 
+                "<br><em>... and $($result.AffectedResources.Count - 10) more</em>" 
+            } else { "" }
+            $html += "<p><strong>Affected Resources:</strong><br>$resourceList$moreCount</p>"
+        }
+        
+        if ($result.RemediationScript) {
+            $html += "<p><strong>Remediation Script:</strong></p><pre>$encodedScript</pre>"
+        }
+        
+        $html += @"
                                 </div>
                             </td>
                         </tr>
@@ -637,8 +666,8 @@ function New-EnhancedWafHtml {
     
     <script>
         // Chart data from PowerShell
-        const pillarData = $($pillarData | ConvertTo-Json -Compress);
-        const severityData = $($severityData | ConvertTo-Json -Compress);
+        const pillarData = $($pillarData | ConvertTo-Json -Compress -Depth 5);
+        const severityData = $($severityData | ConvertTo-Json -Compress -Depth 5);
         const statusData = {
             passed: $($Summary.Passed),
             failed: $($Summary.Failed),
@@ -715,14 +744,14 @@ function New-EnhancedWafHtml {
         // Table functions
         function toggleDetails(row) {
             const detailsRow = row.nextElementSibling;
-            const icon = row.querySelector('.fa-chevron-down, .fa-chevron-up');
+            const icon = row.cells[5];
             
             if (detailsRow.style.display === 'table-row') {
                 detailsRow.style.display = 'none';
-                icon.className = 'fas fa-chevron-down';
+                icon.textContent = '▼';
             } else {
                 detailsRow.style.display = 'table-row';
-                icon.className = 'fas fa-chevron-up';
+                icon.textContent = '▲';
             }
         }
         
@@ -774,7 +803,7 @@ function New-EnhancedWafHtml {
                 return aValue.localeCompare(bValue);
             });
             
-            rows.forEach((row, index) => {
+            rows.forEach((row) => {
                 const detailsRow = row.nextElementSibling;
                 tbody.appendChild(row);
                 tbody.appendChild(detailsRow);
@@ -783,7 +812,7 @@ function New-EnhancedWafHtml {
         
         function exportToCSV() {
             const rows = document.querySelectorAll('#resultsTable tbody tr.expandable');
-            let csv = 'Check ID,Pillar,Status,Severity,Title\\n';
+            let csv = 'Check ID,Pillar,Status,Severity,Title\n';
             
             rows.forEach(row => {
                 if (row.style.display !== 'none') {
@@ -791,7 +820,7 @@ function New-EnhancedWafHtml {
                     csv += cells.map(cell => {
                         let text = cell.textContent.trim();
                         return '"' + text.replace(/"/g, '""') + '"';
-                    }).join(',') + '\\n';
+                    }).join(',') + '\n';
                 }
             });
             
@@ -799,7 +828,7 @@ function New-EnhancedWafHtml {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'waf-results.csv';
+            a.download = 'waf-results-' + new Date().toISOString().split('T')[0] + '.csv';
             a.click();
         }
     </script>
@@ -808,8 +837,8 @@ function New-EnhancedWafHtml {
 "@
 
     # Write to file
-    $html | Set
-    Content -Path $OutputPath -Encoding UTF8
+    $html | Set-Content -Path $OutputPath -Encoding UTF8
     Write-Verbose "HTML report generated successfully at: $OutputPath"
-    }
-    Export-ModuleMember -Function New-EnhancedWafHtml
+}
+
+Export-ModuleMember -Function New-EnhancedWafHtml
