@@ -1,16 +1,49 @@
 <#
 .SYNOPSIS
-    Azure WAF Scanner Core Module with enhanced functionality.
+    Azure WAF Scanner Core Module - Fixed and Production Ready
+    
+.DESCRIPTION
+    Consolidated module with all helper functions, check registration,
+    and execution logic properly integrated.
 #>
 
 #Requires -Version 7.0
 
 # Module-level variables
 $script:CheckRegistry = @()
-$script:ModuleRoot = $PSScriptRoot
 $script:CacheStore = @{}
+$script:ModuleRoot = $PSScriptRoot
 
-#region Core Helper Functions
+#region Import Core Helper Functions
+
+# Import all helper functions from Core directory
+$coreFiles = @(
+    'Connect-Context.ps1',
+    'Get-Advisor.ps1',
+    'Get-CostData.ps1',
+    'Get-CostMonthly.ps1',
+    'Get-DefenderAssessments.ps1',
+    'Get-Orphans.ps1',
+    'Get-PolicyState.ps1',
+    'Get-Subscriptions.ps1',
+    'Invoke-Arg.ps1',
+    'Utils.ps1',
+    'HtmlEngine.ps1'
+)
+
+foreach ($file in $coreFiles) {
+    $filePath = Join-Path $PSScriptRoot "Core" $file
+    if (Test-Path $filePath) {
+        . $filePath
+        Write-Verbose "Loaded: $file"
+    } else {
+        Write-Warning "Core file not found: $file"
+    }
+}
+
+#endregion
+
+#region Check Registration System
 
 function Register-WafCheck {
     <#
@@ -18,10 +51,10 @@ function Register-WafCheck {
         Registers a WAF check to the scanner registry.
     
     .PARAMETER CheckId
-        Unique identifier for the check (e.g., "RE01").
+        Unique identifier (e.g., "RE01", "SE05").
     
     .PARAMETER Pillar
-        WAF pillar (Reliability, Security, Cost, Performance, OperationalExcellence).
+        WAF pillar: Reliability, Security, CostOptimization, PerformanceEfficiency, OperationalExcellence.
     
     .PARAMETER Title
         Human-readable title for the check.
@@ -33,24 +66,28 @@ function Register-WafCheck {
         Severity level: Critical, High, Medium, Low.
     
     .PARAMETER RemediationEffort
-        Estimated effort to remediate: Low, Medium, High.
+        Estimated effort: Low, Medium, High.
     
     .PARAMETER ScriptBlock
-        The check logic. Must accept [string]$SubscriptionId parameter.
+        Check logic. Must accept [string]$SubscriptionId parameter.
     
     .PARAMETER Tags
         Optional tags for categorization.
     
     .PARAMETER DocumentationUrl
         URL to relevant documentation.
+    
+    .PARAMETER ComplianceFramework
+        Compliance framework mapping (e.g., "CIS Azure 1.4.0").
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
+        [ValidatePattern('^(RE|SE|CO|PE|OE)\d{2}$')]
         [string]$CheckId,
         
         [Parameter(Mandatory)]
-        [ValidateSet('Reliability', 'Security', 'CostOptimization', 'Performance', 'OperationalExcellence')]
+        [ValidateSet('Reliability', 'Security', 'CostOptimization', 'PerformanceEfficiency', 'OperationalExcellence')]
         [string]$Pillar,
         
         [Parameter(Mandatory)]
@@ -75,6 +112,12 @@ function Register-WafCheck {
         [string]$ComplianceFramework = ''
     )
     
+    # Check for duplicates
+    if ($script:CheckRegistry | Where-Object CheckId -eq $CheckId) {
+        Write-Warning "Check $CheckId is already registered. Skipping duplicate."
+        return
+    }
+    
     $check = [PSCustomObject]@{
         CheckId = $CheckId
         Pillar = $Pillar
@@ -89,15 +132,48 @@ function Register-WafCheck {
         RegisteredAt = Get-Date
     }
     
-    # Check for duplicates
-    if ($script:CheckRegistry | Where-Object CheckId -eq $CheckId) {
-        Write-Warning "Check $CheckId is already registered. Skipping duplicate."
-        return
-    }
-    
     $script:CheckRegistry += $check
     Write-Verbose "Registered check: $CheckId - $Title"
 }
+
+function Get-RegisteredChecks {
+    <#
+    .SYNOPSIS
+        Gets all registered checks, optionally filtered.
+    #>
+    [CmdletBinding()]
+    param(
+        [string[]]$Pillars,
+        [string[]]$CheckIds,
+        [string[]]$ExcludePillars,
+        [string[]]$ExcludeCheckIds
+    )
+    
+    $checks = $script:CheckRegistry
+    
+    # Apply filters
+    if ($Pillars) {
+        $checks = $checks | Where-Object { $Pillars -contains $_.Pillar }
+    }
+    
+    if ($CheckIds) {
+        $checks = $checks | Where-Object { $CheckIds -contains $_.CheckId }
+    }
+    
+    if ($ExcludePillars) {
+        $checks = $checks | Where-Object { $ExcludePillars -notcontains $_.Pillar }
+    }
+    
+    if ($ExcludeCheckIds) {
+        $checks = $checks | Where-Object { $ExcludeCheckIds -notcontains $_.CheckId }
+    }
+    
+    return $checks
+}
+
+#endregion
+
+#region Result Creation
 
 function New-WafResult {
     <#
@@ -151,11 +227,13 @@ function New-WafResult {
     
     if (!$checkInfo) {
         Write-Warning "Check $CheckId not found in registry"
-        $checkInfo = @{
+        $checkInfo = [PSCustomObject]@{
             Pillar = 'Unknown'
             Title = 'Unknown'
+            Description = ''
             Severity = 'Medium'
             RemediationEffort = 'Medium'
+            DocumentationUrl = ''
         }
     }
     
@@ -176,6 +254,10 @@ function New-WafResult {
         Metadata = $Metadata
     }
 }
+
+#endregion
+
+#region Azure Resource Graph Queries
 
 function Invoke-AzResourceGraphQuery {
     <#
@@ -221,7 +303,6 @@ function Invoke-AzResourceGraphQuery {
     
     $attempt = 0
     $allResults = @()
-    $skipToken = $null
     
     while ($attempt -lt $MaxRetries) {
         try {
@@ -234,11 +315,13 @@ function Invoke-AzResourceGraphQuery {
                 $params.Subscription = $SubscriptionId
             }
             
-            if ($skipToken) {
-                $params.SkipToken = $skipToken
-            }
+            $skipToken = $null
             
             do {
+                if ($skipToken) {
+                    $params.SkipToken = $skipToken
+                }
+                
                 $result = Search-AzGraph @params
                 
                 if ($result.Data) {
@@ -246,10 +329,6 @@ function Invoke-AzResourceGraphQuery {
                 }
                 
                 $skipToken = $result.SkipToken
-                
-                if ($skipToken) {
-                    $params.SkipToken = $skipToken
-                }
                 
             } while ($skipToken)
             
@@ -271,326 +350,274 @@ function Invoke-AzResourceGraphQuery {
                 Write-Warning "Resource Graph throttled. Retrying in $delay seconds... (Attempt $attempt/$MaxRetries)"
                 Start-Sleep -Seconds $delay
             } else {
-                Write-Error "Resource Graph query failed: $_"
+                Write-Error "Resource Graph query failed after $MaxRetries attempts: $_"
                 throw
             }
         }
     }
 }
 
-function Get-WafAdvisorRecommendations {
+# Alias for backward compatibility with existing checks
+Set-Alias -Name Invoke-Arg -Value Invoke-AzResourceGraphQuery
+
+#endregion
+
+#region Check Execution
+
+function Invoke-WafCheck {
     <#
     .SYNOPSIS
-        Gets Azure Advisor recommendations for a subscription.
+        Executes a single WAF check with timeout and error handling.
+    
+    .PARAMETER Check
+        The check object from the registry.
+    
+    .PARAMETER SubscriptionId
+        Target subscription ID.
+    
+    .PARAMETER TimeoutSeconds
+        Timeout for check execution.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
+        [PSCustomObject]$Check,
+        
+        [Parameter(Mandatory)]
         [string]$SubscriptionId,
         
-        [string[]]$Categories = @('Cost', 'Security', 'Reliability', 'Performance', 'OperationalExcellence')
+        [int]$TimeoutSeconds = 300
     )
     
+    Write-Verbose "Executing check: $($Check.CheckId) - $($Check.Title)"
+    
     try {
-        $null = Set-AzContext -SubscriptionId $SubscriptionId -ErrorAction Stop
+        # Execute check with timeout
+        $job = Start-Job -ScriptBlock {
+            param($CheckScript, $SubId)
+            & $CheckScript -SubscriptionId $SubId
+        } -ArgumentList $Check.ScriptBlock, $SubscriptionId
         
-        $recommendations = Get-AzAdvisorRecommendation -ErrorAction Stop | 
-            Where-Object { $Categories -contains $_.Category }
+        $completed = Wait-Job -Job $job -Timeout $TimeoutSeconds
         
-        return $recommendations
-        
+        if ($completed) {
+            $result = Receive-Job -Job $job
+            Remove-Job -Job $job
+            return $result
+        } else {
+            Stop-Job -Job $job
+            Remove-Job -Job $job
+            
+            # Return timeout error
+            return New-WafResult -CheckId $Check.CheckId `
+                -Status 'Error' `
+                -Message "Check execution timed out after $TimeoutSeconds seconds" `
+                -Recommendation "Increase timeout or optimize check query"
+        }
     } catch {
-        Write-Warning "Failed to retrieve Advisor recommendations: $_"
-        return @()
+        Write-Error "Check $($Check.CheckId) failed: $_"
+        
+        return New-WafResult -CheckId $Check.CheckId `
+            -Status 'Error' `
+            -Message "Check execution failed: $($_.Exception.Message)" `
+            -Metadata @{
+                ErrorType = $_.Exception.GetType().Name
+                StackTrace = $_.ScriptStackTrace
+            }
     }
 }
 
-function Get-WafDefenderFindings {
+function Invoke-WafSubscriptionScan {
     <#
     .SYNOPSIS
-        Gets Microsoft Defender for Cloud security findings.
+        Scans a single subscription with all registered checks.
+    
+    .PARAMETER SubscriptionId
+        Target subscription ID.
+    
+    .PARAMETER ExcludePillars
+        Pillars to exclude.
+    
+    .PARAMETER ExcludeCheckIds
+        Specific checks to exclude.
+    
+    .PARAMETER TimeoutSeconds
+        Timeout per check.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
         [string]$SubscriptionId,
         
-        [string[]]$Severities = @('High', 'Medium', 'Low')
+        [string[]]$ExcludePillars = @(),
+        [string[]]$ExcludeCheckIds = @(),
+        [int]$TimeoutSeconds = 300
     )
     
+    Write-Host "Scanning subscription: $SubscriptionId" -ForegroundColor Cyan
+    
+    # Get filtered checks
+    $checks = Get-RegisteredChecks -ExcludePillars $ExcludePillars -ExcludeCheckIds $ExcludeCheckIds
+    
+    Write-Host "  Total checks to run: $($checks.Count)" -ForegroundColor Gray
+    
+    $results = @()
+    $currentCheck = 0
+    
+    foreach ($check in $checks) {
+        $currentCheck++
+        $percentComplete = [Math]::Round(($currentCheck / $checks.Count) * 100)
+        
+        Write-Progress -Activity "Scanning: $SubscriptionId" `
+                       -Status "Check $currentCheck of $($checks.Count): $($check.CheckId)" `
+                       -PercentComplete $percentComplete
+        
+        $result = Invoke-WafCheck -Check $check -SubscriptionId $SubscriptionId -TimeoutSeconds $TimeoutSeconds
+        
+        if ($result) {
+            $results += $result
+            
+            # Show status in console
+            $statusColor = switch ($result.Status) {
+                'Pass' { 'Green' }
+                'Fail' { 'Red' }
+                'Warning' { 'Yellow' }
+                default { 'Gray' }
+            }
+            Write-Host "    [$($result.Status)]".PadRight(12) -NoNewline -ForegroundColor $statusColor
+            Write-Host "$($check.CheckId) - $($check.Title)" -ForegroundColor Gray
+        }
+    }
+    
+    Write-Progress -Activity "Scanning: $SubscriptionId" -Completed
+    
+    return $results
+}
+
+#endregion
+
+#region Reporting Helpers
+
+function Get-WafScanSummary {
+    <#
+    .SYNOPSIS
+        Generates summary statistics from scan results.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [array]$Results,
+        
+        [datetime]$StartTime = (Get-Date)
+    )
+    
+    $summary = @{
+        TotalChecks = $Results.Count
+        Passed = ($Results | Where-Object Status -eq 'Pass').Count
+        Failed = ($Results | Where-Object Status -eq 'Fail').Count
+        Warnings = ($Results | Where-Object Status -eq 'Warning').Count
+        NotApplicable = ($Results | Where-Object Status -eq 'N/A').Count
+        Errors = ($Results | Where-Object Status -eq 'Error').Count
+        Duration = ((Get-Date) - $StartTime).ToString("hh\:mm\:ss")
+        Timestamp = $StartTime
+    }
+    
+    # Calculate compliance score
+    $scoreable = $summary.Passed + $summary.Failed + $summary.Warnings
+    if ($scoreable -gt 0) {
+        $summary.ComplianceScore = [Math]::Round(($summary.Passed / $scoreable) * 100, 2)
+    } else {
+        $summary.ComplianceScore = 0
+    }
+    
+    # Group by pillar
+    $summary.ByPillar = $Results | Group-Object Pillar | ForEach-Object {
+        $pillarTotal = $_.Count
+        $pillarPassed = ($_.Group | Where-Object Status -eq 'Pass').Count
+        $pillarFailed = ($_.Group | Where-Object Status -eq 'Fail').Count
+        
+        @{
+            Pillar = $_.Name
+            Total = $pillarTotal
+            Passed = $pillarPassed
+            Failed = $pillarFailed
+            ComplianceScore = if ($pillarTotal -gt 0) { 
+                [Math]::Round(($pillarPassed / $pillarTotal) * 100, 1) 
+            } else { 0 }
+        }
+    }
+    
+    # Group by severity (failures only)
+    $summary.BySeverity = $Results | 
+        Where-Object Status -eq 'Fail' | 
+        Group-Object Severity | 
+        ForEach-Object {
+            @{
+                Severity = $_.Name
+                Count = $_.Count
+            }
+        }
+    
+    return [PSCustomObject]$summary
+}
+
+function Compare-WafBaseline {
+    <#
+    .SYNOPSIS
+        Compares current results with baseline.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [array]$CurrentResults,
+        
+        [Parameter(Mandatory)]
+        [string]$BaselinePath
+    )
+    
+    if (!(Test-Path $BaselinePath)) {
+        Write-Warning "Baseline file not found: $BaselinePath"
+        return $null
+    }
+    
     try {
-        $null = Set-AzContext -SubscriptionId $SubscriptionId -ErrorAction Stop
+        $baseline = Get-Content $BaselinePath -Raw | ConvertFrom-Json
         
-        # Get security assessments
-        $assessments = Get-AzSecurityAssessment -ErrorAction SilentlyContinue
+        $comparison = @{
+            NewFailures = @()
+            Improvements = @()
+            Unchanged = @()
+        }
         
-        if ($assessments) {
-            return $assessments | Where-Object { 
-                $_.Status.Code -ne 'Healthy' -and 
-                $Severities -contains $_.Status.Severity 
+        foreach ($current in $CurrentResults) {
+            $baselineCheck = $baseline | Where-Object CheckId -eq $current.CheckId | Select-Object -First 1
+            
+            if (!$baselineCheck) {
+                # New check or new failure
+                if ($current.Status -eq 'Fail') {
+                    $comparison.NewFailures += $current
+                }
+            } elseif ($baselineCheck.Status -ne $current.Status) {
+                # Status changed
+                if ($current.Status -eq 'Pass' -and $baselineCheck.Status -ne 'Pass') {
+                    $comparison.Improvements += $current
+                } elseif ($current.Status -eq 'Fail' -and $baselineCheck.Status -eq 'Pass') {
+                    $comparison.NewFailures += $current
+                }
+            } else {
+                $comparison.Unchanged += $current
             }
         }
         
-        return @()
+        Write-Host "`nBaseline Comparison:" -ForegroundColor Cyan
+        Write-Host "  New Failures:  $($comparison.NewFailures.Count)" -ForegroundColor Red
+        Write-Host "  Improvements:  $($comparison.Improvements.Count)" -ForegroundColor Green
+        Write-Host "  Unchanged:     $($comparison.Unchanged.Count)" -ForegroundColor Gray
         
+        return [PSCustomObject]$comparison
     } catch {
-        Write-Warning "Failed to retrieve Defender findings: $_"
-        return @()
-    }
-}
-
-function Get-WafPolicyCompliance {
-    <#
-    .SYNOPSIS
-        Gets Azure Policy compliance state for a subscription.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$SubscriptionId
-    )
-    
-    try {
-        $null = Set-AzContext -SubscriptionId $SubscriptionId -ErrorAction Stop
-        
-        # Get policy states
-        $policyStates = Get-AzPolicyState -SubscriptionId $SubscriptionId -Filter "ComplianceState eq 'NonCompliant'" -ErrorAction Stop
-        
-        return $policyStates
-        
-    } catch {
-        Write-Warning "Failed to retrieve policy compliance: $_"
-        return @()
-    }
-}
-
-function Get-WafCostData {
-    <#
-    .SYNOPSIS
-        Gets cost data for a subscription.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$SubscriptionId,
-        
-        [int]$DaysBack = 30
-    )
-    
-    try {
-        $null = Set-AzContext -SubscriptionId $SubscriptionId -ErrorAction Stop
-        
-        $startDate = (Get-Date).AddDays(-$DaysBack).ToString('yyyy-MM-dd')
-        $endDate = (Get-Date).ToString('yyyy-MM-dd')
-        
-        # Get cost data using Cost Management
-        $scope = "/subscriptions/$SubscriptionId"
-        
-        # Note: This requires Az.CostManagement module
-        # Placeholder for cost query
-        Write-Verbose "Retrieving cost data from $startDate to $endDate"
-        
-        # Actual implementation would use:
-        # Invoke-AzCostManagementQuery or similar
-        
-        return @{
-            TotalCost = 0
-            StartDate = $startDate
-            EndDate = $endDate
-            CostByService = @()
-        }
-        
-    } catch {
-        Write-Warning "Failed to retrieve cost data: $_"
+        Write-Error "Failed to compare with baseline: $_"
         return $null
-    }
-}
-
-function Test-ResourceTag {
-    <#
-    .SYNOPSIS
-        Tests if a resource has specific tags.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [object]$Resource,
-        
-        [Parameter(Mandatory)]
-        [string[]]$RequiredTags
-    )
-    
-    if (!$Resource.Tags) {
-        return $false
-    }
-    
-    foreach ($tag in $RequiredTags) {
-        if (!$Resource.Tags.ContainsKey($tag)) {
-            return $false
-        }
-    }
-    
-    return $true
-}
-
-function Get-ResourceGroupsByLocation {
-    <#
-    .SYNOPSIS
-        Groups resources by location.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$SubscriptionId
-    )
-    
-    $query = @"
-Resources
-| where subscriptionId == '$SubscriptionId'
-| summarize count() by location
-| order by count_ desc
-"@
-    
-    return Invoke-AzResourceGraphQuery -Query $query -SubscriptionId $SubscriptionId -UseCache
-}
-
-function Test-HighAvailabilityConfiguration {
-    <#
-    .SYNOPSIS
-        Tests if resources are configured for high availability.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [object]$Resource
-    )
-    
-    # Check for availability zones
-    $hasAvailabilityZones = $Resource.zones -and $Resource.zones.Count -ge 2
-    
-    # Check for redundancy in SKU
-    $hasRedundancy = $Resource.sku.tier -match 'Premium|Standard' -and 
-                     $Resource.sku.name -notmatch 'Basic'
-    
-    return $hasAvailabilityZones -or $hasRedundancy
-}
-
-function Get-UnusedResources {
-    <#
-    .SYNOPSIS
-        Identifies potentially unused resources.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$SubscriptionId,
-        
-        [int]$IdleDays = 30
-    )
-    
-    $query = @"
-Resources
-| where subscriptionId == '$SubscriptionId'
-| where type in ('microsoft.compute/disks', 'microsoft.network/publicipaddresses', 'microsoft.network/networkinterfaces')
-| where properties.diskState == 'Unattached' 
-    or (type == 'microsoft.network/publicipaddresses' and isnull(properties.ipConfiguration))
-    or (type == 'microsoft.network/networkinterfaces' and isnull(properties.virtualMachine))
-| project id, name, type, resourceGroup, location
-"@
-    
-    return Invoke-AzResourceGraphQuery -Query $query -SubscriptionId $SubscriptionId -UseCache
-}
-
-function Get-ResourcesWithoutBackup {
-    <#
-    .SYNOPSIS
-        Finds resources that should be backed up but aren't.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$SubscriptionId
-    )
-    
-    $query = @"
-Resources
-| where subscriptionId == '$SubscriptionId'
-| where type in ('microsoft.compute/virtualmachines', 'microsoft.sql/servers/databases')
-| project id, name, type, resourceGroup
-| join kind=leftouter (
-    RecoveryServicesResources
-    | where type == 'microsoft.recoveryservices/vaults/backupfabrics/protectioncontainers/protecteditems'
-    | extend sourceResourceId = tolower(tostring(properties.sourceResourceId))
-    | project sourceResourceId
-) on `$left.id == `$right.sourceResourceId
-| where isnull(sourceResourceId)
-| project id, name, type, resourceGroup
-"@
-    
-    return Invoke-AzResourceGraphQuery -Query $query -SubscriptionId $SubscriptionId -UseCache
-}
-
-function Format-RemediationScript {
-    <#
-    .SYNOPSIS
-        Generates remediation scripts for common issues.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$IssueType,
-        
-        [Parameter(Mandatory)]
-        [hashtable]$Context
-    )
-    
-    switch ($IssueType) {
-        'MissingTags' {
-            return @"
-# Add required tags to resource
-`$resourceId = '$($Context.ResourceId)'
-`$tags = @{
-    'Environment' = 'Production'
-    'Owner' = 'TeamName'
-    'CostCenter' = 'CC-001'
-}
-
-Update-AzTag -ResourceId `$resourceId -Tag `$tags -Operation Merge
-"@
-        }
-        
-        'UnattachedDisk' {
-            return @"
-# Review and delete unattached disk if no longer needed
-`$diskId = '$($Context.ResourceId)'
-
-# First, verify it's truly unused
-Get-AzDisk -ResourceId `$diskId
-
-# If confirmed unused, remove it
-# Remove-AzDisk -ResourceId `$diskId -Force
-"@
-        }
-        
-        'NoBackup' {
-            return @"
-# Enable Azure Backup for resource
-`$resourceId = '$($Context.ResourceId)'
-`$vaultName = 'YourRecoveryServicesVault'
-`$policyName = 'DefaultPolicy'
-
-# Get vault and policy
-`$vault = Get-AzRecoveryServicesVault -Name `$vaultName
-`$policy = Get-AzRecoveryServicesBackupProtectionPolicy -Name `$policyName -VaultId `$vault.ID
-
-# Enable backup
-Enable-AzRecoveryServicesBackupProtection -ResourceId `$resourceId -Policy `$policy -VaultId `$vault.ID
-"@
-        }
-        
-        default {
-            return "# No automated remediation available. Please review manually."
-        }
     }
 }
 
@@ -601,7 +628,7 @@ Enable-AzRecoveryServicesBackupProtection -ResourceId `$resourceId -Policy `$pol
 function Initialize-WafScanner {
     <#
     .SYNOPSIS
-        Initializes the WAF Scanner module.
+        Initializes the WAF Scanner module and loads all checks.
     #>
     [CmdletBinding()]
     param()
@@ -613,9 +640,6 @@ function Initialize-WafScanner {
         @{ Name = 'Az.Accounts'; MinVersion = '2.0.0' }
         @{ Name = 'Az.Resources'; MinVersion = '6.0.0' }
         @{ Name = 'Az.ResourceGraph'; MinVersion = '0.13.0' }
-        @{ Name = 'Az.Advisor'; MinVersion = '2.0.0' }
-        @{ Name = 'Az.Security'; MinVersion = '1.0.0' }
-        @{ Name = 'Az.PolicyInsights'; MinVersion = '1.6.0' }
     )
     
     foreach ($module in $requiredModules) {
@@ -624,53 +648,52 @@ function Initialize-WafScanner {
             Select-Object -First 1
         
         if (!$installed) {
-            Write-Warning "Module $($module.Name) (>= $($module.MinVersion)) not found. Installing..."
-            try {
-                Install-Module -Name $module.Name -MinimumVersion $module.MinVersion -Scope CurrentUser -Force -AllowClobber
-                Write-Verbose "Installed $($module.Name)"
-            } catch {
-                Write-Error "Failed to install $($module.Name): $_"
-            }
+            Write-Warning "Required module $($module.Name) (>= $($module.MinVersion)) not found"
+            Write-Host "Install with: Install-Module $($module.Name) -MinimumVersion $($module.MinVersion) -Scope CurrentUser" -ForegroundColor Yellow
         }
     }
     
-    # Load check modules
-    $checkPaths = Get-ChildItem -Path (Join-Path $script:ModuleRoot "Pillars") -Filter "Invoke.ps1" -Recurse -ErrorAction SilentlyContinue
+    # Load check files
+    $checkPath = Join-Path $script:ModuleRoot "Pillars"
     
-    Write-Verbose "Found $($checkPaths.Count) check files"
-    
-    foreach ($checkPath in $checkPaths) {
-        try {
-            . $checkPath.FullName
-            Write-Verbose "Loaded check: $($checkPath.FullName)"
-        } catch {
-            Write-Warning "Failed to load check from $($checkPath.FullName): $_"
+    if (Test-Path $checkPath) {
+        $checkFiles = Get-ChildItem -Path $checkPath -Filter "Invoke.ps1" -Recurse
+        
+        Write-Verbose "Found $($checkFiles.Count) check files"
+        
+        foreach ($checkFile in $checkFiles) {
+            try {
+                . $checkFile.FullName
+                Write-Verbose "Loaded check: $($checkFile.FullName)"
+            } catch {
+                Write-Warning "Failed to load check from $($checkFile.FullName): $_"
+            }
         }
+    } else {
+        Write-Warning "Check directory not found: $checkPath"
     }
     
     Write-Verbose "WAF Scanner initialized with $($script:CheckRegistry.Count) checks"
 }
-
-# Auto-initialize on module import
-Initialize-WafScanner
 
 #endregion
 
 # Export module members
 Export-ModuleMember -Function @(
     'Register-WafCheck',
+    'Get-RegisteredChecks',
     'New-WafResult',
     'Invoke-AzResourceGraphQuery',
-    'Get-WafAdvisorRecommendations',
-    'Get-WafDefenderFindings',
-    'Get-WafPolicyCompliance',
-    'Get-WafCostData',
-    'Test-ResourceTag',
-    'Get-ResourceGroupsByLocation',
-    'Test-HighAvailabilityConfiguration',
-    'Get-UnusedResources',
-    'Get-ResourcesWithoutBackup',
-    'Format-RemediationScript',
+    'Invoke-WafCheck',
+    'Invoke-WafSubscriptionScan',
+    'Get-WafScanSummary',
+    'Compare-WafBaseline',
     'Initialize-WafScanner'
 )
-```
+
+Export-ModuleMember -Alias @(
+    'Invoke-Arg'
+)
+
+# Auto-initialize on module import
+Initialize-WafScanner
