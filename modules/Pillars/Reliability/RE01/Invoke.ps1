@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    RE:01 - Simplify and optimize
+    RE01 - Simplify and optimize
 
 .DESCRIPTION
     Validates that the workload design minimizes unnecessary complexity and 
@@ -8,7 +8,7 @@
 
 .NOTES
     Pillar: Reliability
-    Recommendation: RE:01 from Microsoft WAF
+    Recommendation: RE01 from Microsoft WAF
     Severity: High
     
 .LINK
@@ -46,7 +46,7 @@ Resources
 Resources
 | where subscriptionId == '$SubscriptionId'
 | where type =~ 'microsoft.compute/disks'
-| where managedBy == ''
+| where isnull(managedBy) or managedBy == ''
 | summarize OrphanedDisks = count()
 "@
             $orphanedDisks = Invoke-AzResourceGraphQuery -Query $orphanedDisksQuery -SubscriptionId $SubscriptionId -UseCache
@@ -55,7 +55,7 @@ Resources
 Resources
 | where subscriptionId == '$SubscriptionId'
 | where type =~ 'microsoft.network/networkinterfaces'
-| where properties.virtualMachine == ''
+| where isnull(properties.virtualMachine) or properties.virtualMachine == ''
 | summarize OrphanedNics = count()
 "@
             $orphanedNics = Invoke-AzResourceGraphQuery -Query $orphanedNicsQuery -SubscriptionId $SubscriptionId -UseCache
@@ -64,26 +64,30 @@ Resources
 Resources
 | where subscriptionId == '$SubscriptionId'
 | where type =~ 'microsoft.network/publicipaddresses'
-| where properties.ipConfiguration == ''
+| where isnull(properties.ipConfiguration) or properties.ipConfiguration == ''
 | summarize OrphanedPips = count()
 "@
             $orphanedPips = Invoke-AzResourceGraphQuery -Query $orphanedPipsQuery -SubscriptionId $SubscriptionId -UseCache
             
-            # 3. Check for empty resource groups
-            $emptyRgQuery = @"
+            # 3. Check for empty resource groups - FIXED APPROACH
+            $allRgQuery = @"
 ResourceContainers
 | where subscriptionId == '$SubscriptionId'
 | where type =~ 'microsoft.resources/subscriptions/resourcegroups'
-| project rgName = name, rgId = id
-| join kind=leftouter (
-    Resources
-    | where subscriptionId == '$SubscriptionId'
-    | summarize ResourceCount = count() by resourceGroup
-) on `$left.rgName == `$right.resourceGroup
-| where ResourceCount == 0 or isnull(ResourceCount)
-| summarize EmptyResourceGroups = count()
+| summarize TotalRGs = count()
 "@
-            $emptyRgs = Invoke-AzResourceGraphQuery -Query $emptyRgQuery -SubscriptionId $SubscriptionId -UseCache
+            $totalRgsResult = Invoke-AzResourceGraphQuery -Query $allRgQuery -SubscriptionId $SubscriptionId -UseCache
+            
+            $rgsWithResourcesQuery = @"
+Resources
+| where subscriptionId == '$SubscriptionId'
+| summarize RGsWithResources = dcount(resourceGroup)
+"@
+            $rgsWithResourcesResult = Invoke-AzResourceGraphQuery -Query $rgsWithResourcesQuery -SubscriptionId $SubscriptionId -UseCache
+            
+            $totalRgCount = if ($totalRgsResult.Count -gt 0) { $totalRgsResult[0].TotalRGs } else { 0 }
+            $rgsWithResourcesCount = if ($rgsWithResourcesResult.Count -gt 0) { $rgsWithResourcesResult[0].RGsWithResources } else { 0 }
+            $emptyRgCount = $totalRgCount - $rgsWithResourcesCount
             
             # 4. Check for Azure Advisor simplification recommendations
             $advisorRecs = Get-AzAdvisorRecommendation -Category Cost, OperationalExcellence -ErrorAction SilentlyContinue | 
@@ -117,16 +121,16 @@ Resources
             $managedServices = Invoke-AzResourceGraphQuery -Query $managedServicesQuery -SubscriptionId $SubscriptionId -UseCache
             
             # Calculate complexity score
-            $totalResources = $complexity[0].TotalResources
-            $uniqueTypes = $complexity[0].UniqueTypes
-            $uniqueLocations = $complexity[0].UniqueLocations
-            $resourceGroups = $complexity[0].ResourceGroups
+            $totalResources = if ($complexity.Count -gt 0) { $complexity[0].TotalResources } else { 0 }
+            $uniqueTypes = if ($complexity.Count -gt 0) { $complexity[0].UniqueTypes } else { 0 }
+            $uniqueLocations = if ($complexity.Count -gt 0) { $complexity[0].UniqueLocations } else { 0 }
+            $resourceGroups = if ($complexity.Count -gt 0) { $complexity[0].ResourceGroups } else { 0 }
             
-            $orphanedTotal = $orphanedDisks[0].OrphanedDisks + 
-                           $orphanedNics[0].OrphanedNics + 
-                           $orphanedPips[0].OrphanedPips
+            $orphanedDisksCount = if ($orphanedDisks.Count -gt 0) { $orphanedDisks[0].OrphanedDisks } else { 0 }
+            $orphanedNicsCount = if ($orphanedNics.Count -gt 0) { $orphanedNics[0].OrphanedNics } else { 0 }
+            $orphanedPipsCount = if ($orphanedPips.Count -gt 0) { $orphanedPips[0].OrphanedPips } else { 0 }
             
-            $emptyRgCount = if ($emptyRgs.Count -gt 0) { $emptyRgs[0].EmptyResourceGroups } else { 0 }
+            $orphanedTotal = $orphanedDisksCount + $orphanedNicsCount + $orphanedPipsCount
             
             $vmCount = if ($vms.Count -gt 0) { $vms[0].VirtualMachines } else { 0 }
             $managedCount = if ($managedServices.Count -gt 0) { $managedServices[0].ManagedServices } else { 0 }
@@ -164,7 +168,7 @@ Complexity Assessment:
 - Unique Resource Types: $uniqueTypes
 - Locations: $uniqueLocations
 - Resource Groups: $resourceGroups
-- Orphaned Resources: $orphanedTotal (Disks: $($orphanedDisks[0].OrphanedDisks), NICs: $($orphanedNics[0].OrphanedNics), PIPs: $($orphanedPips[0].OrphanedPips))
+- Orphaned Resources: $orphanedTotal (Disks: $orphanedDisksCount, NICs: $orphanedNicsCount, PIPs: $orphanedPipsCount)
 - Empty Resource Groups: $emptyRgCount
 - Virtual Machines: $vmCount
 - Managed Services: $managedCount
@@ -292,9 +296,9 @@ $($complexityIssues | ForEach-Object { "• $_" } | Out-String)
 
 ### Phase 1: Remove Waste (Week 1)
 1. **Delete orphaned resources** ($orphanedTotal total):
-   - $($orphanedDisks[0].OrphanedDisks) unattached disks
-   - $($orphanedNics[0].OrphanedNics) unused network interfaces
-   - $($orphanedPips[0].OrphanedPips) unassociated public IPs
+   - $orphanedDisksCount unattached disks
+   - $orphanedNicsCount unused network interfaces
+   - $orphanedPipsCount unassociated public IPs
    
 2. **Clean up empty resource groups** ($emptyRgCount groups)
 
