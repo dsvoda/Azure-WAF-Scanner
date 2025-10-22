@@ -141,7 +141,7 @@
     },
     "advisor": {
       "includeSuppressions": false,
-      "categoryFilter": ["Cost", "Security", "Reliability", "Performance", "OperationalExcellence"]
+      "categoryFilter": ["Cost Optimization", "Security", "Reliability", "Performance Efficiency", "Operational Excellence"]
     },
     "defender": {
       "includeRecommendations": true,
