@@ -3,16 +3,9 @@
   "description": "Azure WAF Scanner Configuration",
   
   "excludedPillars": [
-    // "Security",
-    // "Reliability", 
-    // "CostOptimization",
-    // "Performance",
-    // "OperationalExcellence"
   ],
   
   "excludedChecks": [
-    // "SEC-001",
-    // "COST-005"
   ],
   
   "customThresholds": {
@@ -52,7 +45,6 @@
       "DoNotScan=True"
     ],
     "includeTags": [
-      // "CriticalWorkload=True"
     ],
     "excludeResourceGroups": [
       "NetworkWatcherRG",
@@ -60,10 +52,8 @@
       "cloud-shell-storage-*"
     ],
     "includeResourceGroups": [
-      // "Production-*"
     ],
     "excludeResourceTypes": [
-      // "Microsoft.Compute/snapshots"
     ]
   },
   
