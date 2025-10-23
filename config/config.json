@@ -1,170 +1,143 @@
 {
-  "description": "Azure WAF Scanner Configuration File",
   "version": "1.0",
+  "description": "Azure WAF Scanner Configuration",
   
-  "excludedPillars": [],
+  "excludedPillars": [
+    // "Security",
+    // "Reliability", 
+    // "CostOptimization",
+    // "Performance",
+    // "OperationalExcellence"
+  ],
   
-  "excludedChecks": [],
+  "excludedChecks": [
+    // "SEC-001",
+    // "COST-005"
+  ],
   
   "customThresholds": {
-    "costManagement": {
+    "security": {
+      "certificateExpiryDaysWarning": 30,
+      "certificateExpiryDaysCritical": 7,
+      "passwordRotationDays": 90,
+      "unusedKeyVaultSecretDays": 180
+    },
+    "costOptimization": {
       "monthlyBudgetWarningPercent": 80,
       "monthlyBudgetCriticalPercent": 95,
-      "unusedResourceAgeDays": 30
-    },
-    "security": {
-      "passwordExpiryDaysWarning": 90,
-      "certificateExpiryDaysWarning": 30,
-      "securityAlertSeverity": ["High", "Medium"]
+      "unusedResourceAgeDays": 30,
+      "underutilizedCpuPercent": 10,
+      "underutilizedMemoryPercent": 20
     },
     "reliability": {
-      "backupRetentionDaysMinimum": 30,
-      "availabilityZoneMinimum": 2,
-      "maxRtoHours": 4,
-      "maxRpoHours": 1
+      "backupRetentionDays": 30,
+      "maxRpoHours": 24,
+      "minAvailabilityZones": 2
     },
     "performance": {
-      "cpuThresholdPercent": 80,
-      "memoryThresholdPercent": 85,
-      "diskThresholdPercent": 90
+      "vmCpuThresholdPercent": 80,
+      "diskIopsThreshold": 5000,
+      "networkThroughputMbps": 1000
+    },
+    "operationalExcellence": {
+      "logRetentionDays": 90,
+      "alertResponseTimeMinutes": 15
     }
   },
   
   "resourceFilters": {
     "excludeTags": [
       "Environment=Dev",
-      "Temporary=True"
+      "Temporary=True",
+      "DoNotScan=True"
     ],
-    
-    "includeTags": [],
-    
+    "includeTags": [
+      // "CriticalWorkload=True"
+    ],
     "excludeResourceGroups": [
       "NetworkWatcherRG",
+      "DefaultResourceGroup-*",
       "cloud-shell-storage-*"
     ],
-    
-    "includeResourceGroups": [],
-    
-    "excludeResourceTypes": [
-      "microsoft.alertsmanagement/smartdetectoralertrules"
+    "includeResourceGroups": [
+      // "Production-*"
     ],
-    
-    "excludeResourceNames": []
-  },
-  
-  "retryPolicy": {
-    "maxAttempts": 3,
-    "delaySeconds": 2,
-    "exponentialBackoff": true,
-    "retryableStatusCodes": [429, 500, 502, 503, 504]
-  },
-  
-  "caching": {
-    "enabled": true,
-    "durationMinutes": 30,
-    "cacheResourceGraph": true,
-    "cacheAdvisor": true,
-    "cachePolicyInsights": false
+    "excludeResourceTypes": [
+      // "Microsoft.Compute/snapshots"
+    ]
   },
   
   "performance": {
     "parallelSubscriptions": true,
     "maxParallelism": 5,
     "timeoutSeconds": 300,
-    "batchResourceGraphQueries": true,
-    "resourceGraphBatchSize": 1000
+    "retryAttempts": 3,
+    "retryDelaySeconds": 5,
+    "exponentialBackoff": true
+  },
+  
+  "caching": {
+    "enabled": true,
+    "durationMinutes": 30,
+    "cachePath": "./.cache",
+    "cacheResourceGraph": true,
+    "cacheAdvisor": true,
+    "cacheDefender": true
   },
   
   "reporting": {
-    "includeRecommendations": true,
-    "includeRemediationSteps": true,
-    "includeCostEstimates": true,
-    "prioritizeByRisk": true,
-    "groupByPillar": true,
-    "includeExecutiveSummary": true,
-    "complianceFrameworks": ["CIS", "ISO27001", "NIST"],
-    "riskScoring": {
-      "enabled": true,
-      "weights": {
-        "Security": 30,
-        "Reliability": 25,
-        "Performance": 15,
-        "CostOptimization": 15,
-        "OperationalExcellence": 15
+    "obfuscateSensitiveData": false,
+    "includeRemediationScripts": true,
+    "includeComplianceMappings": true,
+    "includeBaselineComparison": true,
+    "outputFormats": ["html", "json", "csv"],
+    "outputPath": "./waf-output"
+  },
+  
+  "compliance": {
+    "frameworks": {
+      "cis": {
+        "enabled": true,
+        "version": "1.5.0"
+      },
+      "iso27001": {
+        "enabled": true
+      },
+      "nist": {
+        "enabled": false
+      },
+      "pci-dss": {
+        "enabled": false
       }
     }
   },
   
   "notifications": {
     "enabled": false,
-    "webhook": {
-      "url": "",
-      "method": "POST",
-      "headers": {}
-    },
-    "email": {
-      "enabled": false,
-      "smtpServer": "",
-      "from": "",
-      "to": [],
-      "onlyOnFailures": true
-    },
-    "teams": {
-      "enabled": false,
-      "webhookUrl": ""
-    },
-    "slack": {
-      "enabled": false,
-      "webhookUrl": ""
+    "channels": {
+      "email": {
+        "enabled": false,
+        "recipients": ["security@company.com"],
+        "smtpServer": "smtp.office365.com",
+        "smtpPort": 587,
+        "useSsl": true
+      },
+      "teams": {
+        "enabled": false,
+        "webhookUrl": "https://outlook.office.com/webhook/..."
+      },
+      "slack": {
+        "enabled": false,
+        "webhookUrl": "https://hooks.slack.com/services/..."
+      }
     }
   },
   
-  "dataRetention": {
-    "keepReportsForDays": 90,
-    "autoCleanup": true,
-    "archiveOldReports": true,
-    "archivePath": "./waf-archive"
-  },
-  
-  "security": {
-    "obfuscateSensitiveData": false,
-    "excludeResourceNames": false,
-    "hashSubscriptionIds": false,
-    "sanitizeOutputs": false
-  },
-  
-  "apiSettings": {
-    "resourceGraph": {
-      "maxRecords": 1000,
-      "skipTokenEnabled": true,
-      "queryTimeout": 180
-    },
-    "advisor": {
-      "includeSuppressions": false,
-      "categoryFilter": ["Cost Optimization", "Security", "Reliability", "Performance Efficiency", "Operational Excellence"]
-    },
-    "defender": {
-      "includeRecommendations": true,
-      "includeAlerts": true,
-      "severityFilter": ["High", "Medium", "Low"]
-    },
-    "costManagement": {
-      "forecastDays": 30,
-      "includeTagBreakdown": true
-    }
-  },
-  
-  "customChecks": {
-    "enabled": true,
-    "checkPaths": [
-      "./custom-checks"
-    ]
-  },
-  
-  "baseline": {
-    "enabled": false,
-    "baselinePath": "./baseline.json",
-    "compareOnScan": true,
-    "updateBaseline": false
+  "advanced": {
+    "debugMode": false,
+    "verboseLogging": false,
+    "includeResourceMetadata": true,
+    "generateRemediationScripts": true,
+    "maxResourcesPerCheck": 1000
   }
 }
