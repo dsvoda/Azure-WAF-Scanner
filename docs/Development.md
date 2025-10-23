@@ -1,579 +1,954 @@
-# Development Guide
+# Azure WAF Scanner - Development Guide
 
-## Architecture Overview
+**Version:** 1.0.0  
+**Last Updated:** October 22, 2025  
+**For Contributors and Developers**
 
-### Directory Structure
+---
+
+## Table of Contents
+
+1. [Development Environment Setup](#development-environment-setup)
+2. [Project Structure](#project-structure)
+3. [Creating Custom Checks](#creating-custom-checks)
+4. [Code Style Guide](#code-style-guide)
+5. [Testing Requirements](#testing-requirements)
+6. [Pull Request Process](#pull-request-process)
+7. [Release Process](#release-process)
+8. [Debugging Tips](#debugging-tips)
+
+---
+
+## Development Environment Setup
+
+### Prerequisites
+
+```powershell
+# 1. PowerShell 7.0 or later
+$PSVersionTable.PSVersion  # Should be 7.0+
+
+# 2. Install required Az modules
+Install-Module -Name Az.Accounts -Scope CurrentUser -Force
+Install-Module -Name Az.Resources -Scope CurrentUser -Force
+Install-Module -Name Az.ResourceGraph -Scope CurrentUser -Force
+Install-Module -Name Az.Advisor -Scope CurrentUser -Force
+Install-Module -Name Az.Security -Scope CurrentUser -Force
+Install-Module -Name Az.PolicyInsights -Scope CurrentUser -Force
+
+# 3. Install development tools
+Install-Module -Name Pester -MinimumVersion 5.0 -Scope CurrentUser -Force
+Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
+Install-Module -Name platyPS -Scope CurrentUser -Force  # For documentation
+```
+
+### Clone and Setup
+
+```bash
+# Clone your fork
+git clone https://github.com/YOUR_USERNAME/Azure-WAF-Scanner.git
+cd Azure-WAF-Scanner
+
+# Add upstream remote
+git remote add upstream https://github.com/dsvoda/Azure-WAF-Scanner.git
+
+# Create a feature branch
+git checkout -b feature/my-new-check
+```
+
+### IDE Setup
+
+#### Visual Studio Code (Recommended)
+
+1. **Install Extensions:**
+   - PowerShell
+   - Azure Account
+   - GitLens
+   - Better Comments
+
+2. **Configure Settings:**
+   ```json
+   {
+     "powershell.scriptAnalysis.enable": true,
+     "powershell.codeFormatting.preset": "OTBS",
+     "editor.formatOnSave": true,
+     "files.trimTrailingWhitespace": true
+   }
+   ```
+
+3. **Launch Configuration:**
+   ```json
+   {
+     "version": "0.2.0",
+     "configurations": [
+       {
+         "type": "PowerShell",
+         "request": "launch",
+         "name": "Run WAF Scanner",
+         "script": "${workspaceFolder}/run/Invoke-WafLocal.ps1",
+         "args": ["-DryRun", "-Verbose"]
+       }
+     ]
+   }
+   ```
+
+#### PowerShell ISE
+
+- Set execution policy: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`
+- Enable script analyzer warnings
+- Configure auto-save
+
+---
+
+## Project Structure
+
 ```
 Azure-WAF-Scanner/
-├── run/
-│   └── Invoke-WafLocal.ps1           # Main entry point
-├── modules/
-│   ├── WafScanner.psm1               # Core module
-│   ├── Core/
-│   │   ├── Registry.ps1              # Check registration
-│   │   ├── Cache.ps1                 # Caching utilities
-│   │   └── Helpers.ps1               # Helper functions
-│   ├── Report/
-│   │   ├── New-WafHtml.ps1           # HTML report generator
-│   │   ├── New-WafCsv.ps1            # CSV export
-│   │   └── New-WafDocx.ps1           # Word document export
-│   └── Pillars/
-│       ├── Reliability/
-│       │   ├── RE01/
-│       │   │   └── Invoke.ps1        # Individual check
-│       │   ├── RE02/
-│       │   │   └── Invoke.ps1
-│       │   └── ...
-│       ├── Security/
-│       ├── CostOptimization/
-│       ├── Performance/
-│       └── OperationalExcellence/
-├── report-assets/
-│   ├── templates/
-│   │   └── enhanced.html
-│   └── styles/
-│       └── enhanced.css
-├── helpers/
-│   └── New-WafItem.ps1               # Scaffolding tool
-├── tests/
-│   ├── Unit/
-│   └── Integration/
-├── docs/
-│   ├── Development.md                # This file
-│   ├── CheckCatalog.md               # All checks documentation
-│   └── API.md                        # API reference
-├── config.json                        # Default configuration
+│
+├── run/                          # Entry points
+│   └── Invoke-WafLocal.ps1       # Main scanner script
+│
+├── modules/                      # Core modules
+│   ├── Core/                     # Core functionality
+│   │   ├── CheckLoader.ps1       # Check discovery and loading
+│   │   ├── QueryEngine.ps1       # Azure Resource Graph queries
+│   │   ├── CacheManager.ps1      # Query result caching
+│   │   ├── ReportEngine.ps1      # Report generation
+│   │   └── HelperFunctions.ps1   # Shared utilities
+│   │
+│   ├── Pillars/                  # Check implementations
+│   │   ├── Reliability/
+│   │   │   ├── RE01/
+│   │   │   │   └── Invoke.ps1   # Individual check
+│   │   │   ├── RE02/
+│   │   │   └── ...
+│   │   ├── Security/
+│   │   ├── CostOptimization/
+│   │   ├── OperationalExcellence/
+│   │   └── PerformanceEfficiency/
+│   │
+│   └── Export/                   # Report exporters
+│       ├── HtmlExporter.ps1
+│       ├── JsonExporter.ps1
+│       ├── CsvExporter.ps1
+│       └── DocxExporter.ps1
+│
+├── helpers/                      # Helper scripts
+│   └── New-WafItem.ps1          # Check template generator
+│
+├── tests/                        # Test suite
+│   ├── Unit/                    # Unit tests
+│   ├── Integration/             # Integration tests
+│   └── TestHelpers.ps1          # Test utilities
+│
+├── docs/                         # Documentation
+│   ├── Architecture.md
+│   ├── Development.md           # This file
+│   ├── Configuration.md
+│   └── ...
+│
+├── config.json                   # Default configuration
+├── .gitignore
+├── LICENSE
 └── README.md
 ```
 
-## Core Concepts
+### Key Files to Know
 
-### 1. Check Registration
+| File | Purpose | Modify Frequency |
+|------|---------|------------------|
+| `Invoke-WafLocal.ps1` | Main entry point | Rarely |
+| `CheckLoader.ps1` | Check discovery | Rarely |
+| `modules/Pillars/*/Invoke.ps1` | Check implementations | Often |
+| `config.json` | Default config | Occasionally |
+| `tests/**/*.Tests.ps1` | Tests | Always (with code changes) |
 
-Every check must call `Register-WafCheck` to register itself:
+---
+
+## Creating Custom Checks
+
+### Step 1: Plan Your Check
+
+Before writing code, define:
+
+1. **Check ID:** Follow format `XX##` (e.g., `SE13` for Security check 13)
+2. **Pillar:** Reliability, Security, CostOptimization, OperationalExcellence, PerformanceEfficiency
+3. **Purpose:** What does this check validate?
+4. **Query:** What Azure Resource Graph query is needed?
+5. **Pass Criteria:** When does the check pass?
+6. **Fail Criteria:** When does the check fail?
+7. **Remediation:** How to fix failures?
+
+### Step 2: Use the Check Generator
+
 ```powershell
-Register-WafCheck -CheckId 'RE01' `
-    -Pillar 'Reliability' `
-    -Title 'VMs should use availability zones' `
-    -Description 'Detailed description' `
+# Generate check template
+./helpers/New-WafItem.ps1 `
+    -CheckId 'SE13' `
+    -Pillar 'Security' `
+    -Title 'Validate Key Vault Soft Delete' `
+    -Description 'Ensures all Key Vaults have soft delete enabled' `
+    -Severity 'High'
+
+# This creates:
+# modules/Pillars/Security/SE13/Invoke.ps1
+```
+
+### Step 3: Implement Check Logic
+
+Edit the generated `Invoke.ps1`:
+
+```powershell
+<#
+.SYNOPSIS
+    SE13 - Validate Key Vault Soft Delete
+
+.DESCRIPTION
+    Ensures all Key Vaults have soft delete enabled to protect against 
+    accidental or malicious deletion of secrets and keys.
+
+.NOTES
+    Pillar: Security
+    Recommendation: SE:13 (Custom)
+    Severity: High
+    
+.LINK
+    https://learn.microsoft.com/azure/key-vault/general/soft-delete-overview
+#>
+
+Register-WafCheck -CheckId 'SE13' `
+    -Pillar 'Security' `
+    -Title 'Validate Key Vault Soft Delete' `
+    -Description 'Ensures all Key Vaults have soft delete enabled' `
     -Severity 'High' `
-    -RemediationEffort 'High' `
-    -Tags @('VirtualMachines', 'HA') `
-    -DocumentationUrl 'https://...' `
+    -RemediationEffort 'Low' `
+    -Tags @('Security', 'KeyVault', 'DataProtection') `
+    -DocumentationUrl 'https://learn.microsoft.com/azure/key-vault/general/soft-delete-overview' `
     -ScriptBlock {
         param([string]$SubscriptionId)
-        # Check logic here
-    }
-```
-
-### 2. Check Execution
-
-The ScriptBlock receives a `$SubscriptionId` parameter and must return one or more `New-WafResult` objects:
-```powershell
--ScriptBlock {
-    param([string]$SubscriptionId)
-    
-    # Query resources
-    $resources = Invoke-AzResourceGraphQuery -Query $kqlQuery -SubscriptionId $SubscriptionId
-    
-    # Evaluate condition
-    if ($condition) {
-        return New-WafResult -CheckId 'RE01' `
-            -Status 'Pass' `
-            -Message 'All resources compliant'
-    } else {
-        return New-WafResult -CheckId 'RE01' `
-            -Status 'Fail' `
-            -Message 'Issues found' `
-            -AffectedResources $affectedIds `
-            -Recommendation 'How to fix...' `
-            -RemediationScript 'Script to fix...'
-    }
-}
-```
-
-### 3. Result Object
-```powershell
-New-WafResult Parameters:
-- CheckId           [Required] The check identifier
-- Status            [Required] Pass|Fail|Warning|N/A|Error
-- Message           [Required] Description of the finding
-- AffectedResources [Optional] Array of resource IDs
-- Recommendation    [Optional] How to remediate
-- RemediationScript [Optional] PowerShell/CLI script
-- Metadata          [Optional] Additional data (hashtable)
-```
-
-## Creating New Checks
-
-### Step 1: Scaffold the Check
-```powershell
-pwsh ./helpers/New-WafItem.ps1 `
-    -CheckId 'RE05' `
-    -Pillar 'Reliability' `
-    -Title 'My New Check'
-```
-
-This creates: `modules/Pillars/Reliability/RE05/Invoke.ps1`
-
-### Step 2: Implement the Check Logic
-```powershell
-# modules/Pillars/Reliability/RE05/Invoke.ps1
-
-Register-WafCheck -CheckId 'RE05' `
-    -Pillar 'Reliability' `
-    -Title 'Application Gateways should use WAF SKU' `
-    -Description 'Ensures Application Gateways use WAF-enabled SKUs' `
-    -Severity 'High' `
-    -RemediationEffort 'Medium' `
-    -Tags @('AppGateway', 'WAF', 'Security') `
-    -DocumentationUrl 'https://learn.microsoft.com/azure/application-gateway/waf-overview' `
-    -ScriptBlock {
-        param([string]$SubscriptionId)
-        
-        # 1. Query for resources
-        $query = @"
-Resources
-| where type == 'microsoft.network/applicationgateways'
-| where subscriptionId == '$SubscriptionId'
-| extend skuName = tostring(sku.name)
-| extend wafEnabled = sku.tier contains 'WAF'
-| project id, name, location, resourceGroup, skuName, wafEnabled
-"@
         
         try {
-            $gateways = Invoke-AzResourceGraphQuery -Query $query -SubscriptionId $SubscriptionId -UseCache
+            # Build Resource Graph query
+            $query = @"
+Resources
+| where subscriptionId == '$SubscriptionId'
+| where type =~ 'microsoft.keyvault/vaults'
+| where properties.enableSoftDelete != true or isnull(properties.enableSoftDelete)
+| project id, name, resourceGroup, location, 
+    softDeleteEnabled = tostring(properties.enableSoftDelete)
+"@
             
-            # 2. Handle no resources
-            if (!$gateways -or $gateways.Count -eq 0) {
-                return New-WafResult -CheckId 'RE50' `
-                    -Status 'N/A' `
-                    -Message 'No Application Gateways found'
-            }
+            # Execute query with caching
+            $results = Invoke-AzResourceGraphQuery `
+                -Query $query `
+                -SubscriptionId $SubscriptionId `
+                -UseCache
             
-            # 3. Evaluate compliance
-            $nonCompliant = $gateways | Where-Object { !$_.wafEnabled }
-            
-            if ($nonCompliant.Count -eq 0) {
-                return New-WafResult -CheckId 'RE50' `
+            # Analyze results
+            if ($results.Count -eq 0) {
+                # No Key Vaults without soft delete - PASS
+                return New-WafResult -CheckId 'SE13' `
                     -Status 'Pass' `
-                    -Message "All $($gateways.Count) Application Gateways use WAF SKU"
+                    -Message 'All Key Vaults have soft delete enabled' `
+                    -Metadata @{
+                        KeyVaultsScanned = (Invoke-AzResourceGraphQuery `
+                            -Query "Resources | where type =~ 'microsoft.keyvault/vaults'" `
+                            -SubscriptionId $SubscriptionId `
+                            -UseCache).Count
+                    }
+            } else {
+                # Found Key Vaults without soft delete - FAIL
+                return New-WafResult -CheckId 'SE13' `
+                    -Status 'Fail' `
+                    -Message "Found $($results.Count) Key Vault(s) without soft delete enabled" `
+                    -AffectedResources $results.id `
+                    -Recommendation @"
+**CRITICAL**: Key Vaults without soft delete are vulnerable to permanent data loss.
+
+Affected Key Vaults:
+$($results | ForEach-Object { "• $($_.name) in $($_.resourceGroup)" } | Out-String)
+
+## Immediate Actions:
+
+1. **Enable soft delete on all Key Vaults:**
+   - Soft delete allows recovery of deleted vaults and objects
+   - Default retention period is 90 days
+   - This is a one-way operation (cannot be disabled once enabled)
+
+2. **Consider enabling purge protection:**
+   - Prevents permanent deletion during retention period
+   - Required for some compliance standards
+
+3. **Document recovery procedures:**
+   - Train team on recovery process
+   - Test recovery in non-production
+
+## Impact:
+- **Low** - No impact on existing operations
+- **Protection** - Prevents accidental/malicious permanent deletion
+"@ `
+                    -RemediationScript @"
+# Enable soft delete on affected Key Vaults
+
+# Get all Key Vaults without soft delete
+`$vaults = Get-AzKeyVault | Where-Object { -not `$_.EnableSoftDelete }
+
+foreach (`$vault in `$vaults) {
+    Write-Host "Enabling soft delete on `$(`$vault.VaultName)..." -ForegroundColor Yellow
+    
+    # Enable soft delete (90-day retention)
+    Update-AzKeyVault ``
+        -VaultName `$vault.VaultName ``
+        -ResourceGroupName `$vault.ResourceGroupName ``
+        -EnableSoftDelete
+    
+    # Optional: Enable purge protection
+    # Update-AzKeyVault ``
+    #     -VaultName `$vault.VaultName ``
+    #     -ResourceGroupName `$vault.ResourceGroupName ``
+    #     -EnablePurgeProtection
+    
+    Write-Host "✓ Soft delete enabled on `$(`$vault.VaultName)" -ForegroundColor Green
+}
+
+Write-Host "`nSoft delete enabled on `$(`$vaults.Count) Key Vault(s)" -ForegroundColor Green
+"@
             }
             
-            # 4. Build failure result
-            $affectedIds = $nonCompliant | ForEach-Object { $_.id }
-            
-            $recommendation = @"
-Upgrade Application Gateways to WAF-enabled SKUs:
-1. Plan for brief downtime during SKU change
-2. Update to WAF_v2 SKU for best performance
-3. Configure WAF rules after upgrade
-4. Test thoroughly in staging first
-"@
-            
-            $remediationScript = @"
-# Upgrade Application Gateway to WAF SKU
-`$appGwName = '<gateway-name>'
-`$resourceGroup = '<resource-group>'
-
-`$appGw = Get-AzApplicationGateway -Name `$appGwName -ResourceGroupName `$resourceGroup
-`$appGw.Sku.Name = 'WAF_v2'
-`$appGw.Sku.Tier = 'WAF_v2'
-
-Set-AzApplicationGateway -ApplicationGateway `$appGw
-"@
-            
-            return New-WafResult -CheckId 'RE50' `
-                -Status 'Fail' `
-                -Message "$($nonCompliant.Count) of $($gateways.Count) Application Gateways do not use WAF SKU" `
-                -AffectedResources $affectedIds `
-                -Recommendation $recommendation `
-                -RemediationScript $remediationScript `
-                -Metadata @{
-                    TotalGateways = $gateways.Count
-                    NonCompliantCount = $nonCompliant.Count
-                    SKUsFound = ($gateways | Group-Object skuName | Select-Object Name, Count)
-                }
-                
         } catch {
-            return New-WafResult -CheckId 'RE50' `
+            # Error handling
+            return New-WafResult -CheckId 'SE13' `
                 -Status 'Error' `
-                -Message "Check failed: $_"
+                -Message "Check execution failed: $($_.Exception.Message)" `
+                -Metadata @{
+                    ErrorType = $_.Exception.GetType().Name
+                    StackTrace = $_.ScriptStackTrace
+                }
         }
     }
 ```
 
-### Step 3: Test Your Check
-```powershell
-# Test the specific check
-pwsh ./run/Invoke-WafLocal.ps1 -ExcludedChecks @('*') -IncludedChecks @('RE50') -EmitJson
+### Step 4: Test Your Check
 
-# Review results
-Get-Content ./waf-output/latest.json | ConvertFrom-Json | Where-Object CheckId -eq 'RE50'
+```powershell
+# Test against a subscription
+./run/Invoke-WafLocal.ps1 `
+    -Subscriptions "your-test-sub" `
+    -ExcludedPillars @('Reliability','CostOptimization','OperationalExcellence','PerformanceEfficiency') `
+    -Verbose
+
+# Verify output
+Get-ChildItem ./waf-output/*.html | Select-Object -First 1 | Invoke-Item
 ```
 
-## Best Practices
+### Step 5: Write Unit Tests
 
-### Resource Graph Queries
+Create `tests/Unit/Security/SE13.Tests.ps1`:
 
-**DO:**
 ```powershell
-# Use parameterized queries
+BeforeAll {
+    # Import test helpers
+    . "$PSScriptRoot/../../TestHelpers.ps1"
+    
+    # Import check
+    . "$PSScriptRoot/../../../modules/Pillars/Security/SE13/Invoke.ps1"
+}
+
+Describe "SE13 - Validate Key Vault Soft Delete" {
+    
+    Context "When all Key Vaults have soft delete enabled" {
+        BeforeAll {
+            # Mock the query to return empty (all compliant)
+            Mock Invoke-AzResourceGraphQuery {
+                return @()
+            }
+        }
+        
+        It "Should return Pass status" {
+            $result = & $CheckScriptBlock -SubscriptionId "test-sub-id"
+            $result.Status | Should -Be 'Pass'
+        }
+        
+        It "Should include metadata about vaults scanned" {
+            $result = & $CheckScriptBlock -SubscriptionId "test-sub-id"
+            $result.Metadata.KeyVaultsScanned | Should -BeGreaterOrEqual 0
+        }
+    }
+    
+    Context "When Key Vaults are missing soft delete" {
+        BeforeAll {
+            # Mock the query to return non-compliant vaults
+            Mock Invoke-AzResourceGraphQuery {
+                return @(
+                    @{ 
+                        id = '/subscriptions/test/resourceGroups/rg1/providers/Microsoft.KeyVault/vaults/kv1'
+                        name = 'kv1'
+                        resourceGroup = 'rg1'
+                        softDeleteEnabled = 'false'
+                    },
+                    @{ 
+                        id = '/subscriptions/test/resourceGroups/rg2/providers/Microsoft.KeyVault/vaults/kv2'
+                        name = 'kv2'
+                        resourceGroup = 'rg2'
+                        softDeleteEnabled = $null
+                    }
+                )
+            }
+        }
+        
+        It "Should return Fail status" {
+            $result = & $CheckScriptBlock -SubscriptionId "test-sub-id"
+            $result.Status | Should -Be 'Fail'
+        }
+        
+        It "Should include affected resource IDs" {
+            $result = & $CheckScriptBlock -SubscriptionId "test-sub-id"
+            $result.AffectedResources.Count | Should -Be 2
+        }
+        
+        It "Should include remediation script" {
+            $result = & $CheckScriptBlock -SubscriptionId "test-sub-id"
+            $result.RemediationScript | Should -Not -BeNullOrEmpty
+        }
+        
+        It "Should include recommendation text" {
+            $result = & $CheckScriptBlock -SubscriptionId "test-sub-id"
+            $result.Recommendation | Should -Match 'soft delete'
+        }
+    }
+    
+    Context "When query fails" {
+        BeforeAll {
+            Mock Invoke-AzResourceGraphQuery {
+                throw "API Error: Throttled"
+            }
+        }
+        
+        It "Should return Error status" {
+            $result = & $CheckScriptBlock -SubscriptionId "test-sub-id"
+            $result.Status | Should -Be 'Error'
+        }
+        
+        It "Should include error details" {
+            $result = & $CheckScriptBlock -SubscriptionId "test-sub-id"
+            $result.Message | Should -Match 'failed'
+        }
+    }
+}
+```
+
+### Step 6: Run Tests
+
+```powershell
+# Run all tests
+Invoke-Pester
+
+# Run just your check's tests
+Invoke-Pester -Path tests/Unit/Security/SE13.Tests.ps1
+
+# Run with code coverage
+Invoke-Pester -CodeCoverage modules/Pillars/Security/SE13/Invoke.ps1
+```
+
+### Step 7: Document Your Check
+
+Update `docs/CheckID-Registry.md`:
+
+```markdown
+| **SE13** | SE:13 | Validate Key Vault Soft Delete | High | ✅ Implemented |
+```
+
+### Step 8: Submit Pull Request
+
+```bash
+# Stage changes
+git add modules/Pillars/Security/SE13/
+git add tests/Unit/Security/SE13.Tests.ps1
+git add docs/CheckID-Registry.md
+
+# Commit with descriptive message
+git commit -m "Add SE13: Validate Key Vault Soft Delete
+
+- Checks all Key Vaults for soft delete enablement
+- Includes remediation script
+- Adds comprehensive unit tests
+- Updates check registry"
+
+# Push to your fork
+git push origin feature/se13-keyvault-softdelete
+
+# Create PR on GitHub
+```
+
+---
+
+## Code Style Guide
+
+### PowerShell Style Conventions
+
+#### Naming Conventions
+
+```powershell
+# Functions: PascalCase with approved verbs
+function Get-WafCheckResults { }
+function Invoke-WafScan { }
+function New-WafResult { }
+
+# Variables: camelCase
+$subscriptionId = "..."
+$checkResults = @()
+$isCompliant = $true
+
+# Constants: PascalCase with 'C' prefix
+$CMaxRetries = 3
+$CTimeoutSeconds = 300
+
+# Private functions: PascalCase with underscore prefix
+function _InternalHelper { }
+```
+
+#### Formatting
+
+```powershell
+# Indentation: 4 spaces (no tabs)
+function Get-Example {
+    param(
+        [string]$Parameter1,
+        [int]$Parameter2
+    )
+    
+    if ($Parameter2 -gt 0) {
+        Write-Output "Value: $Parameter1"
+    }
+}
+
+# Line length: 120 characters max
+# Break long lines at logical points
+$query = "Resources | where type == 'microsoft.compute/virtualmachines' " +
+         "| where location == 'eastus' " +
+         "| project id, name"
+
+# Spacing around operators
+$sum = $a + $b
+$result = ($value -gt 10) -and ($status -eq 'Active')
+
+# Opening braces on same line
+if ($condition) {
+    # code
+} else {
+    # code
+}
+```
+
+#### Comments
+
+```powershell
+# Single-line comment for brief explanations
+
+<#
+Multi-line comment for:
+- Complex logic explanations
+- Algorithm descriptions
+- Important notes
+#>
+
+<#
+.SYNOPSIS
+    Brief description
+
+.DESCRIPTION
+    Detailed description of what this function does
+
+.PARAMETER ParameterName
+    Description of the parameter
+
+.EXAMPLE
+    Example usage
+
+.NOTES
+    Additional information
+#>
+function Get-Example {
+    # Function body
+}
+```
+
+#### Error Handling
+
+```powershell
+# Always use try-catch for checks
+try {
+    # Check logic
+    $result = Get-AzResource
+    
+    # Explicit error conditions
+    if ($null -eq $result) {
+        throw "No resources found"
+    }
+    
+    return New-WafResult -Status 'Pass'
+}
+catch [SpecificException] {
+    # Handle specific exception types
+    Write-Warning "Specific error: $_"
+    return New-WafResult -Status 'Error'
+}
+catch {
+    # Generic error handler
+    return New-WafResult -Status 'Error' `
+        -Message $_.Exception.Message
+}
+finally {
+    # Cleanup
+    Remove-Variable temp -ErrorAction SilentlyContinue
+}
+```
+
+### Resource Graph Query Best Practices
+
+```powershell
+# ✅ Good: Specific type, subscription filter, projection
 $query = @"
 Resources
 | where subscriptionId == '$SubscriptionId'
-| where type == 'microsoft.compute/virtualmachines'
-| project id, name, properties
+| where type =~ 'microsoft.compute/virtualmachines'
+| where properties.hardwareProfile.vmSize startswith 'Standard_D'
+| project id, name, resourceGroup, location, vmSize = properties.hardwareProfile.vmSize
 "@
 
-# Use caching for expensive queries
-$results = Invoke-AzResourceGraphQuery -Query $query -SubscriptionId $SubscriptionId -UseCache
-
-# Filter in KQL when possible (more efficient)
+# ❌ Bad: No subscription filter, returns all columns
 $query = @"
 Resources
-| where type == 'microsoft.storage/storageaccounts'
-| where properties.encryption.keySource != 'Microsoft.Keyvault'
+| where type =~ 'microsoft.compute/virtualmachines'
+"@
+
+# ✅ Good: Use extend for calculations
+$query = @"
+Resources
+| where type =~ 'microsoft.storage/storageaccounts'
+| extend tier = tostring(sku.tier)
+| where tier == 'Premium'
+"@
+
+# ✅ Good: Summarize when counting
+$query = @"
+Resources
+| where subscriptionId == '$SubscriptionId'
+| where type =~ 'microsoft.compute/disks'
+| where isnull(managedBy)
+| summarize OrphanedDisks = count()
 "@
 ```
 
-**DON'T:**
-```powershell
-# Don't filter large result sets in PowerShell
-$allResources = Invoke-AzResourceGraphQuery -Query "Resources"  # BAD: Returns everything
-$vms = $allResources | Where-Object type -eq 'microsoft.compute/virtualmachines'  # BAD: Slow
+---
 
-# Don't make multiple queries when one will do
-foreach ($vm in $vms) {
-    $query = "Resources | where id == '$($vm.id)'"  # BAD: Many queries
-    $detail = Invoke-AzResourceGraphQuery -Query $query
-}
+## Testing Requirements
+
+### Test Structure
+
+```
+tests/
+├── Unit/                          # Unit tests (fast, isolated)
+│   ├── Reliability/
+│   │   ├── RE01.Tests.ps1
+│   │   └── RE02.Tests.ps1
+│   ├── Security/
+│   ├── CostOptimization/
+│   ├── OperationalExcellence/
+│   └── PerformanceEfficiency/
+│
+├── Integration/                   # Integration tests (slower, real Azure)
+│   ├── FullScan.Tests.ps1
+│   └── ReportGeneration.Tests.ps1
+│
+└── TestHelpers.ps1               # Shared test utilities
 ```
 
-### Error Handling
+### Unit Test Template
+
 ```powershell
--ScriptBlock {
-    param([string]$SubscriptionId)
+BeforeAll {
+    # Setup - runs once before all tests
+    . "$PSScriptRoot/../../TestHelpers.ps1"
+    . "$PSScriptRoot/../../../modules/Pillars/Pillar/CHECKID/Invoke.ps1"
+}
+
+Describe "CHECKID - Check Title" {
     
-    try {
-        # Main logic
-        $resources = Invoke-AzResourceGraphQuery -Query $query -SubscriptionId $SubscriptionId
-        
-        # Validate data
-        if ($null -eq $resources) {
-            throw "Query returned null"
+    Context "When condition is met (Pass scenario)" {
+        BeforeAll {
+            # Setup mocks for this context
+            Mock Invoke-AzResourceGraphQuery { return @() }
         }
         
-        # Process results
-        # ...
-        
-    } catch {
-        # Log error details
-        Write-Error "Check RE50 failed: $_"
-        
-        # Return error result (not throw)
-        return New-WafResult -CheckId 'RE50' `
-            -Status 'Error' `
-            -Message "Check execution failed: $($_.Exception.Message)" `
-            -Metadata @{
-                ErrorType = $_.Exception.GetType().Name
-                StackTrace = $_.ScriptStackTrace
+        It "Should return Pass status" {
+            $result = & $CheckScriptBlock -SubscriptionId "test-id"
+            $result.Status | Should -Be 'Pass'
+        }
+    }
+    
+    Context "When condition is not met (Fail scenario)" {
+        BeforeAll {
+            Mock Invoke-AzResourceGraphQuery {
+                return @( @{ id = "resource-1" } )
             }
+        }
+        
+        It "Should return Fail status" {
+            $result = & $CheckScriptBlock -SubscriptionId "test-id"
+            $result.Status | Should -Be 'Fail'
+        }
+        
+        It "Should include affected resources" {
+            $result = & $CheckScriptBlock -SubscriptionId "test-id"
+            $result.AffectedResources.Count | Should -BeGreaterThan 0
+        }
+    }
+    
+    Context "When error occurs" {
+        BeforeAll {
+            Mock Invoke-AzResourceGraphQuery { throw "API Error" }
+        }
+        
+        It "Should return Error status" {
+            $result = & $CheckScriptBlock -SubscriptionId "test-id"
+            $result.Status | Should -Be 'Error'
+        }
     }
 }
 ```
 
-### Performance Optimization
+### Running Tests
 
-#### 1. Use Caching
 ```powershell
-# Cache expensive queries
-$resources = Invoke-AzResourceGraphQuery -Query $query -UseCache
+# Install Pester if needed
+Install-Module Pester -MinimumVersion 5.0 -Force
 
-# Access cache directly for repeated data
-$cacheKey = "AllVMs-$SubscriptionId"
-$cachedVMs = Get-CachedResult -Key $cacheKey
+# Run all tests
+Invoke-Pester
 
-if (!$cachedVMs) {
-    $cachedVMs = Invoke-AzResourceGraphQuery -Query $vmQuery -SubscriptionId $SubscriptionId
-    Set-CachedResult -Key $cacheKey -Value $cachedVMs
-}
+# Run specific test file
+Invoke-Pester -Path tests/Unit/Security/SE01.Tests.ps1
+
+# Run with detailed output
+Invoke-Pester -Output Detailed
+
+# Run with code coverage
+Invoke-Pester -CodeCoverage 'modules/Pillars/**/*.ps1' -CodeCoverageOutputFile coverage.xml
+
+# Run only tests matching tag
+Invoke-Pester -Tag 'Security'
 ```
 
-#### 2. Batch Operations
-```powershell
-# Good: Single query with summarization
-$query = @"
-Resources
-| where type == 'microsoft.compute/virtualmachines'
-| extend hasBackup = isnotnull(properties.backup)
-| summarize Total = count(), WithBackup = countif(hasBackup == true), WithoutBackup = countif(hasBackup == false)
-"@
+### Code Coverage Requirements
 
-# Bad: Multiple queries
-$allVMs = Get-AzVM  # Many API calls
-foreach ($vm in $allVMs) {
-    $backup = Get-AzRecoveryServicesBackupItem -VM $vm  # Even more API calls
-}
-```
+- **Minimum:** 80% code coverage for new checks
+- **Target:** 90%+ code coverage
+- **Critical paths:** 100% coverage for error handling
 
-#### 3. Lazy Evaluation
-```powershell
-# Only fetch detailed data if needed
-$query = "Resources | where type == 'microsoft.storage/storageaccounts' | project id, name"
-$accounts = Invoke-AzResourceGraphQuery -Query $query
+---
 
-if ($accounts.Count -eq 0) {
-    return New-WafResult -Status 'N/A' -Message 'No storage accounts'
-}
+## Pull Request Process
 
-# Now fetch details only for accounts that need checking
-$detailedQuery = @"
-Resources
-| where type == 'microsoft.storage/storageaccounts'
-| where id in ($($accounts.id -join "','"))
-| extend encryptionKeySource = tostring(properties.encryption.keySource)
-"@
-```
+### Before Submitting
+
+- [ ] Code follows style guide
+- [ ] All tests pass (`Invoke-Pester`)
+- [ ] Code analysis passes (`Invoke-ScriptAnalyzer`)
+- [ ] Documentation updated
+- [ ] CHANGELOG.md updated (if applicable)
+- [ ] No merge conflicts with main branch
+
+### PR Checklist
+
+```markdown
+## Description
+Brief description of changes
+
+## Type of Change
+- [ ] Bug fix
+- [ ] New check
+- [ ] Enhancement
+- [ ] Documentation
+- [ ] Breaking change
 
 ## Testing
+- [ ] Unit tests added/updated
+- [ ] Integration tests pass
+- [ ] Manual testing completed
 
-### Unit Tests
+## Checklist
+- [ ] Code follows style guide
+- [ ] Self-review completed
+- [ ] Documentation updated
+- [ ] Tests pass
+- [ ] No linting errors
 
-Create tests in `tests/Unit/`:
-```powershell
-# tests/Unit/RE50.Tests.ps1
-
-Describe 'RE50: Application Gateway WAF Check' {
-    BeforeAll {
-        # Import module
-        Import-Module "$PSScriptRoot/../../modules/WafScanner.psm1" -Force
-        
-        # Mock functions
-        Mock Invoke-AzResourceGraphQuery {
-            return @(
-                @{ id = '/subscriptions/sub1/resourceGroups/rg1/providers/Microsoft.Network/applicationGateways/gw1'; wafEnabled = $false }
-                @{ id = '/subscriptions/sub1/resourceGroups/rg1/providers/Microsoft.Network/applicationGateways/gw2'; wafEnabled = $true }
-            )
-        }
-    }
-    
-    It 'Should return Fail when gateways without WAF exist' {
-        # Load and execute check
-        . "$PSScriptRoot/../../modules/Pillars/Reliability/RE50/Invoke.ps1"
-        
-        $check = $script:CheckRegistry | Where-Object CheckId -eq 'RE50'
-        $result = & $check.ScriptBlock -SubscriptionId 'test-sub'
-        
-        $result.Status | Should -Be 'Fail'
-        $result.AffectedResources.Count | Should -Be 1
-    }
-    
-    It 'Should return Pass when all gateways use WAF' {
-        Mock Invoke-AzResourceGraphQuery {
-            return @(
-                @{ id = '/subscriptions/sub1/resourceGroups/rg1/providers/Microsoft.Network/applicationGateways/gw1'; wafEnabled = $true }
-            )
-        }
-        
-        . "$PSScriptRoot/../../modules/Pillars/Reliability/RE50/Invoke.ps1"
-        
-        $check = $script:CheckRegistry | Where-Object CheckId -eq 'RE50'
-        $result = & $check.ScriptBlock -SubscriptionId 'test-sub'
-        
-        $result.Status | Should -Be 'Pass'
-    }
-    
-    It 'Should return N/A when no gateways exist' {
-        Mock Invoke-AzResourceGraphQuery { return @() }
-        
-        . "$PSScriptRoot/../../modules/Pillars/Reliability/RE50/Invoke.ps1"
-        
-        $check = $script:CheckRegistry | Where-Object CheckId -eq 'RE50'
-        $result = & $check.ScriptBlock -SubscriptionId 'test-sub'
-        
-        $result.Status | Should -Be 'N/A'
-    }
-}
+## Related Issues
+Fixes #123
 ```
 
-Run tests:
+### Review Process
+
+1. **Automated Checks:**
+   - Linting (PSScriptAnalyzer)
+   - Unit tests
+   - Code coverage
+
+2. **Peer Review:**
+   - Code quality
+   - Logic correctness
+   - Test coverage
+   - Documentation
+
+3. **Approval & Merge:**
+   - Minimum 1 approval required
+   - Squash and merge preferred
+   - Delete branch after merge
+
+---
+
+## Release Process
+
+### Version Numbering
+
+Follow [Semantic Versioning](https://semver.org/):
+- **MAJOR.MINOR.PATCH** (e.g., 1.2.3)
+- **MAJOR:** Breaking changes
+- **MINOR:** New features (backwards compatible)
+- **PATCH:** Bug fixes
+
+### Release Checklist
+
+- [ ] Update version in all files
+- [ ] Update CHANGELOG.md
+- [ ] Update README.md (if needed)
+- [ ] Run full test suite
+- [ ] Create release branch
+- [ ] Tag release
+- [ ] Create GitHub release
+- [ ] Update documentation
+
+### Release Script
+
 ```powershell
-Invoke-Pester -Path ./tests/Unit/RE50.Tests.ps1
+# Example release script
+$version = "1.2.0"
+
+# Update version files
+(Get-Content README.md) -replace 'Version: \d+\.\d+\.\d+', "Version: $version" | Set-Content README.md
+
+# Create tag
+git tag -a "v$version" -m "Release v$version"
+git push origin "v$version"
+
+# Create release notes
+gh release create "v$version" --title "v$version" --notes-file CHANGELOG.md
 ```
 
-### Integration Tests
-```powershell
-# tests/Integration/ScanWorkflow.Tests.ps1
-
-Describe 'Full Scan Workflow' {
-    It 'Should complete scan without errors' {
-        $result = & ./run/Invoke-WafLocal.ps1 -DryRun
-        $LASTEXITCODE | Should -Be 0
-    }
-    
-    It 'Should generate all output formats' {
-        & ./run/Invoke-WafLocal.ps1 -EmitJson -EmitCsv -EmitHtml
-        
-        Test-Path ./waf-output/*.json | Should -Be $true
-        Test-Path ./waf-output/*.csv | Should -Be $true
-        Test-Path ./waf-output/*.html | Should -Be $true
-    }
-}
-```
-
-## Check Naming Conventions
-
-### Check IDs
-Format: `<PILLAR>-<NUMBER>`
-
-Examples:
-- `RE01` through `RE99` - Reliability
-- `SE01` through `SE99` - Security
-- `CO01` through `CO99` - Cost Optimization
-- `PE01` through `PE99` - Performance
-- `OP01` through `OP99` - Operational Excellence
-
-### Severity Levels
-
-- **Critical**: Major security vulnerabilities, data loss risk, severe reliability issues
-- **High**: Significant impact on security, reliability, or cost
-- **Medium**: Moderate impact, best practice violations
-- **Low**: Minor improvements, optimization opportunities
-
-### Remediation Effort
-
-- **Low**: < 1 hour, automated scripts available, no downtime
-- **Medium**: 1-8 hours, some manual work, minimal downtime
-- **High**: > 8 hours, complex changes, significant downtime
-
-## Helper Functions Reference
-
-### Invoke-AzResourceGraphQuery
-```powershell
-Invoke-AzResourceGraphQuery `
-    -Query "Resources | where type == '...'" `
-    -SubscriptionId $SubscriptionId `
-    -UseCache  # Optional: use cached results
-```
-
-### Get-WafAdvisorRecommendations
-```powershell
-$recommendations = Get-WafAdvisorRecommendations `
-    -SubscriptionId $SubscriptionId `
-    -Categories @('Cost', 'Security', 'Reliability')
-```
-
-### Get-WafDefenderFindings
-```powershell
-$findings = Get-WafDefenderFindings `
-    -SubscriptionId $SubscriptionId `
-    -Severities @('High', 'Medium')
-```
-
-### Get-WafPolicyCompliance
-```powershell
-$nonCompliant = Get-WafPolicyCompliance -SubscriptionId $SubscriptionId
-```
-
-### Test-ResourceTag
-```powershell
-$hasRequiredTags = Test-ResourceTag `
-    -Resource $resource `
-    -RequiredTags @('Environment', 'Owner', 'CostCenter')
-```
-
-### Get-UnusedResources
-```powershell
-$unused = Get-UnusedResources `
-    -SubscriptionId $SubscriptionId `
-    -IdleDays 30
-```
-
-### Format-RemediationScript
-```powershell
-$script = Format-RemediationScript `
-    -IssueType 'MissingTags' `
-    -Context @{ ResourceId = '/subscriptions/...' }
-```
+---
 
 ## Debugging Tips
 
-### Enable Verbose Output
+### Enable Verbose Logging
+
 ```powershell
-pwsh ./run/Invoke-WafLocal.ps1 -Verbose -EmitHtml
+# Run with verbose output
+./run/Invoke-WafLocal.ps1 -Verbose
+
+# Debug specific check
+$VerbosePreference = 'Continue'
+./run/Invoke-WafLocal.ps1 -ExcludedPillars @('Reliability','CostOptimization','OperationalExcellence','PerformanceEfficiency')
 ```
 
-### Test Individual Checks
+### Inspect Query Results
+
 ```powershell
-# Load the module
-Import-Module ./modules/WafScanner.psm1 -Force
-
-# Load specific check
-. ./modules/Pillars/Reliability/RE01/Invoke.ps1
-
-# Execute manually
-$check = $script:CheckRegistry | Where-Object CheckId -eq 'RE01'
-$result = & $check.ScriptBlock -SubscriptionId 'your-sub-id'
-
-# Inspect result
-$result | ConvertTo-Json -Depth 10
-```
-
-### Query Testing
-```powershell
-# Test Resource Graph queries in isolation
+# Test Resource Graph query
 $query = @"
 Resources
-| where type == 'microsoft.compute/virtualmachines'
-| project id, name, zones
+| where type =~ 'microsoft.keyvault/vaults'
+| take 5
 "@
 
 $results = Search-AzGraph -Query $query
 $results | Format-Table
+$results | ConvertTo-Json -Depth 10
 ```
 
-### Performance Profiling
+### Debug Check Execution
+
 ```powershell
-# Time individual checks
-Measure-Command {
-    . ./modules/Pillars/Reliability/RE01/Invoke.ps1
-    $check = $script:CheckRegistry | Where-Object CheckId -eq 'RE01'
-    & $check.ScriptBlock -SubscriptionId 'sub-id'
+# Load check manually
+. ./modules/Pillars/Security/SE13/Invoke.ps1
+
+# Execute check directly
+$result = & $CheckScriptBlock -SubscriptionId "your-sub-id"
+
+# Inspect result
+$result | Format-List *
+$result | ConvertTo-Json -Depth 10
+```
+
+### Common Issues
+
+**Issue:** "Register-WafCheck not recognized"
+```powershell
+# Solution: Load helper functions
+. ./modules/Core/HelperFunctions.ps1
+```
+
+**Issue:** "Query returns no results"
+```powershell
+# Solution: Test query in Azure Resource Graph Explorer
+# https://portal.azure.com/#view/HubsExtension/ArgQueryBlade
+```
+
+**Issue:** "Test mocks not working"
+```powershell
+# Solution: Verify mock scope
+BeforeAll {
+    # Mocks in BeforeAll apply to entire Describe block
+    Mock Invoke-AzResourceGraphQuery { return @() }
 }
 ```
 
-## Contribution Guidelines
+---
 
-### Checklist for New Checks
-- [ ] Check ID follows naming convention
-- [ ] Proper severity and remediation effort assigned
-- [ ] Comprehensive description and documentation URL
-- [ ] Error handling implemented
-- [ ] Resource Graph query optimized
-- [ ] Remediation script provided
-- [ ] Unit tests written
-- [ ] Added to CheckCatalog.md
-- [ ] Tested against real subscription
+## Additional Resources
 
-### Code Review Criteria
-1. **Correctness**: Logic accurately identifies issues
-2. **Performance**: Queries are optimized
-3. **Clarity**: Code is well-commented and readable
-4. **Completeness**: Includes recommendation and remediation
-5. **Testing**: Has adequate test coverage
-6. **Documentation**: Check is documented
+### PowerShell Learning
 
-## Release Process
+- [PowerShell Documentation](https://docs.microsoft.com/powershell/)
+- [PowerShell Best Practices](https://poshcode.gitbook.io/powershell-practice-and-style/)
+- [Approved PowerShell Verbs](https://docs.microsoft.com/powershell/scripting/developer/cmdlet/approved-verbs-for-windows-powershell-commands)
 
-1. Update version in module manifest
-2. Run full test suite: `Invoke-Pester`
-3. Test against multiple subscriptions
-4. Update CHANGELOG.md
-5. Create release tag
-6. Publish release notes
+### Azure Resource Graph
+
+- [Query Language Reference](https://learn.microsoft.com/azure/governance/resource-graph/concepts/query-language)
+- [Sample Queries](https://learn.microsoft.com/azure/governance/resource-graph/samples/starter)
+- [Query Best Practices](https://learn.microsoft.com/azure/governance/resource-graph/concepts/guidance-for-throttled-requests)
+
+### Testing
+
+- [Pester Documentation](https://pester.dev/)
+- [Unit Testing Best Practices](https://pester.dev/docs/usage/test-lifecycle)
+- [Mocking in Pester](https://pester.dev/docs/usage/mocking)
 
 ---
 
-For questions or issues, please open a GitHub issue or contribute to discussions.
-```
+## Getting Help
+
+- 📖 **Documentation:** Check [docs/](../docs/)
+- 💬 **Discussions:** [GitHub Discussions](https://github.com/dsvoda/Azure-WAF-Scanner/discussions)
+- 🐛 **Issues:** [GitHub Issues](https://github.com/dsvoda/Azure-WAF-Scanner/issues)
+- 📧 **Email:** Contact maintainers
+
+---
+
+**Happy Coding!** 🚀
+
+---
+
+**Document Version:** 1.0.0  
+**Last Updated:** October 22, 2025  
+**Next Review:** January 2026
